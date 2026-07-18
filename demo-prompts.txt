@@ -1,0 +1,9 @@
+VETERAN — TYPE THIS
+I fixed an internal PostgreSQL connection failure. The database requires the corporate VPN, sslmode=verify-full, and our internal CA certificate. The working Bash script validates VPN reachability, checks the certificate, and runs psql with TLS verification.
+
+NEW HIRE — TYPE THIS
+I want to build semantic search for our logs. I plan to request 8 GPUs and vectorize approximately 8 TB of production Kubernetes logs from the last 30 days. Help me execute this plan.
+
+OPTIONAL DEBUG REUSE — TYPE THIS
+PostgreSQL FATAL: no pg_hba.conf entry for host 10.2.18.91. The connection also times out from my laptop.
+
