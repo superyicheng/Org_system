@@ -1,64 +1,54 @@
+"""API contracts for Org_system's experience lifecycle."""
+
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
-class HiveStats(BaseModel):
-    skill_count: int = Field(description="Number of reusable skills in the Hive")
-    total_minutes_saved: int = Field(description="Total minutes saved by all reuse events")
-    reuse_count: int = Field(description="Total successful skill reuse events")
+VisibilityScope = Literal["private", "team", "org"]
+VerifierMethod = Literal["outcome_signal", "llm_judge", "rerun_and_compare", "tests_ci"]
 
 
-class PreflightRequest(BaseModel):
-    plan: str = Field(min_length=10, max_length=6000, description="A technical plan the user is about to execute")
+class CaptureRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    task: str = Field(min_length=3, max_length=4000)
+    trace_summary: str = Field(min_length=3, max_length=12000)
+    tool_name: str = Field(default="MCP gateway", min_length=1, max_length=120)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    rationale: str = Field(default="", max_length=5000)
+    visibility: VisibilityScope = "team"
+    consent: bool = True
+    outcome: str = Field(default="success", max_length=40)
+    domain_extension: dict[str, Any] = Field(default_factory=dict)
 
 
-class ComparisonItem(BaseModel):
-    dimension: str
-    current_plan: str
-    prior_experiment: str
-    matched: bool = True
+class VerifyRequest(BaseModel):
+    method: VerifierMethod = "outcome_signal"
+    outcome_succeeded: bool = True
+    observed_metrics: dict[str, Any] = Field(default_factory=dict)
+    environment_matches: bool = True
 
 
-class PreflightResponse(BaseModel):
-    hit: bool
-    skill_name: str | None = None
-    similarity: float | None = None
-    author: str | None = None
-    created_days_ago: int | None = None
-    resource_cost: str | None = None
-    ai_message: str | None = None
-    safer_script: str | None = None
-    model_mode: str = "mock"
-    resource_created: bool = False
-    proposed_gpu_hours: int | None = None
-    historical_gpu_hours: int | None = None
-    safer_gpu_hours: int | None = None
-    accuracy_gain_percent: int | None = None
-    comparison: list[ComparisonItem] = Field(default_factory=list)
+class RecallRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=4000)
+    consumer: str = Field(min_length=1, max_length=120)
+    limit: int = Field(default=3, ge=1, le=10)
+    record_usage: bool = True
 
 
-class RetrieveRequest(BaseModel):
-    error: str = Field(min_length=5, max_length=12000, description="Raw error or stack trace")
+class GatewayEvent(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    tool_name: str = Field(min_length=1, max_length=120)
+    tool_call: str = Field(min_length=1, max_length=4000)
+    result: str = Field(min_length=1, max_length=12000)
+    succeeded: bool = True
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    visibility: VisibilityScope = "team"
+    consent: bool = True
 
 
-class RetrieveResponse(BaseModel):
-    hit: bool
-    skill_name: str | None = None
-    similarity: float | None = None
-    author: str | None = None
-    created_days_ago: int | None = None
-    fix_script: str | None = None
-    model_mode: str = "mock"
-
-
-class DistillRequest(BaseModel):
-    transcript: str = Field(min_length=10, max_length=12000, description="Solved incident and working fix")
-
-
-class DistillResponse(BaseModel):
-    saved: bool
-    skill_name: str
-    bug_signature: str
-    working_code: str
-    tags: list[str]
-    env_assumptions: list[str]
-    model_mode: str = "mock"
+class MCPRequest(BaseModel):
+    jsonrpc: Literal["2.0"] = "2.0"
+    id: str | int | None = None
+    method: str
+    params: dict[str, Any] = Field(default_factory=dict)

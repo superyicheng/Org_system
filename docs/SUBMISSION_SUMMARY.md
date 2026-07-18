@@ -1,40 +1,37 @@
-# Submission summary
+# Devpost submission draft — Org_system
 
-## Project
+## Project name
 
-**Hive.skill — AI execution memory for platform engineering teams**
+**Org_system — Verified Experience for Your AI Workforce**
 
-## One-line pitch
+## Category
 
-Hive.skill converts proven fixes and failed experiments into executable team knowledge, then retrieves it before another engineer repeats the same error or expensive experiment.
+**Work & Productivity**
 
-## Problem
+## One-line description
 
-The most valuable platform knowledge lives in senior engineers’ debugging sessions and failed experiments. It is rarely captured in documentation, cannot be searched by symptoms, and is usually rediscovered after time or infrastructure has already been wasted.
+Org_system automatically captures team AI-tool experience, verifies it, and gives a teammate’s AI only permissioned, receipt-backed knowledge instead of untrusted notes.
 
-## Solution
+## What it does
 
-Hive.skill closes a three-stage loop:
+When a person’s AI tool solves a hard problem, that lesson usually disappears into a private session. Org_system captures the finished trace from an MCP connection or thin tool adapter, turns it into an experience candidate, verifies it, stores its provenance/consent, and serves it back to another teammate’s AI only if it is verified and visible.
 
-1. **Solve** — a veteran resolves an internal issue or records a failed experiment.
-2. **Distill** — Hive stores a fingerprint, assumptions, outcome, evidence, and executable code as a `.skill`.
-3. **Reuse/Guard** — a new engineer naturally describes an error or plan; Hive retrieves the relevant skill, validates applicability with AI, and returns a fix or a safer execution plan.
+Every result has a receipt: source, verification verdict, freshness, visibility, and retrieval path. The system also records consumption, so the contributor receives credit and the team can see whose knowledge is actually being reused.
 
-## Demo impact
+Our first workflow is a simulation configuration where correctness is machine-checkable. The `rerun_and_compare` verifier uses tolerance-based metric comparison; the local browser demo makes its fixture status explicit. The same core supports outcome signals, CI tests, and future domain-specific verifiers.
 
-A new engineer proposes embedding 8 TB of production Kubernetes logs with eight GPUs. Hive retrieves a prior failed run that consumed 148 GPU hours for only a 3% accuracy gain. It blocks the simulated full run and produces a capped six-GPU-hour validation plan—an estimated 95.9% reduction.
+## How we built it with Codex
 
-## Technical implementation
+Codex accelerated the transformation of the design report into a runnable vertical slice: it mapped the six-layer design into an API contract, implemented the SQLite `ExperienceStore` behind a swappable memory boundary, created the verification state machine and MCP tool surface, built the three dashboards, and ran the lifecycle checks. The human product decisions were to make verification—not retrieval—the trust boundary; keep simulator execution explicit rather than faking it; and preserve attribution and consent as first-class data.
 
-- FastAPI backend
-- local persistent ChromaDB
-- deterministic offline CN/EN-capable hashing embeddings
-- optional OpenAI Responses API client
-- explicit mock fallback
-- single-file stage UI
-- simulated terminal only; no Docker sandbox
+**Before publishing this text, replace this sentence with the exact, truthful GPT-5.6 Codex session evidence and `/feedback` Session ID recorded in `docs/HACKATHON_EVIDENCE.md`.**
 
-## Differentiation
+## Demo instructions for judges
 
-This is not document Q&A. Each skill contains operational evidence and executable behavior: symptoms, environment assumptions, outcome, resource cost, stop conditions, and a tested or safer script.
+1. Run the two commands in the README, then open `http://127.0.0.1:8000`.
+2. Click **Capture simulation trace**. The record is a candidate and is not serveable.
+3. Click **Run reproducibility check**. It becomes `REPRODUCED`/verified.
+4. Click **Recall as Tom**. Inspect Sarah’s proof receipt and switch to the dashboards.
+5. Run `python -m unittest discover -s tests -v` from `backend/` for the same core lifecycle assertion.
 
+The project is local-only, free to test, and requires no account or API key.

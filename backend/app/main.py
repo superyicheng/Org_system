@@ -1,152 +1,129 @@
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from pathlib import Path
+from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from app.config import get_settings
-from app.llm_client import LLMClient
-from app.models import (
-    ComparisonItem,
-    DistillRequest,
-    DistillResponse,
-    HiveStats,
-    PreflightRequest,
-    PreflightResponse,
-    RetrieveRequest,
-    RetrieveResponse,
-)
-from app.seed_data import SEED_SKILLS
-from app.vector_store import SkillStore
+from app.experience_store import ExperienceStore
+from app.mcp_server import handle
+from app.models import CaptureRequest, GatewayEvent, MCPRequest, RecallRequest, VerifyRequest
+from app.verifiers import verify
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    store = SkillStore(get_settings())
+    settings = get_settings()
+    store = ExperienceStore(settings.database_path)
     store.seed()
-    app.state.skill_store = store
+    app.state.store = store
+    app.state.settings = settings
     yield
 
 
 app = FastAPI(
-    title="Hive.skill API",
-    description="AI debugging and execution memory for platform engineering teams",
-    version="0.1.0",
+    title="Org_system API",
+    description="Verified organizational experience for AI tools",
+    version="0.2.0",
     lifespan=lifespan,
 )
-
-# The later Next.js frontend will run on local port 3000.
 app.add_middleware(
     CORSMiddleware,
-    # "null" lets a directly opened local HTML demo call this API.
-    allow_origins=["null", "http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
+    allow_origins=["null", "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+def store_for(request: Request) -> ExperienceStore:
+    return request.app.state.store
+
+
+@app.get("/", include_in_schema=False)
+def frontend() -> FileResponse:
+    return FileResponse(Path(__file__).resolve().parents[2] / "frontend" / "index.html")
+
+
 @app.get("/health", tags=["system"])
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(request: Request) -> dict[str, str]:
+    return {"status": "ok", "service": "Org_system", "memory_engine": request.app.state.settings.memory_engine}
 
 
-@app.get("/hive/stats", response_model=HiveStats, tags=["hive"])
-def hive_stats(request: Request) -> HiveStats:
-    store: SkillStore = request.app.state.skill_store
-    return store.stats()
+@app.get("/api/experiences", tags=["experience"])
+def experiences(request: Request, include_nonserveable: bool = True) -> dict[str, Any]:
+    return {"experiences": store_for(request).list_experiences(include_nonserveable=include_nonserveable)}
 
 
-@app.post("/retrieve", response_model=RetrieveResponse, tags=["hive"])
-def retrieve(payload: RetrieveRequest, request: Request) -> RetrieveResponse:
-    """Real error fingerprinting, Chroma retrieval, and LLM fix adaptation."""
-
-    store: SkillStore = request.app.state.skill_store
-    match = store.search_solution(payload.error)
-    settings = get_settings()
-    if match is None or float(match["similarity"]) < settings.retrieve_similarity_threshold:
-        return RetrieveResponse(hit=False)
-
-    generated = LLMClient(settings).generate_fix(payload.error, match)
-    return RetrieveResponse(
-        hit=True,
-        skill_name=str(match["name"]),
-        similarity=float(match["similarity"]),
-        author=str(match["author"]),
-        created_days_ago=int(match["created_days_ago"]),
-        fix_script=generated.text,
-        model_mode=generated.mode,
-    )
+@app.post("/api/capture", status_code=201, tags=["capture"])
+def capture(payload: CaptureRequest, request: Request) -> dict[str, Any]:
+    if not payload.consent:
+        raise HTTPException(status_code=422, detail="Capture requires explicit consent.")
+    experience = store_for(request).create_candidate(payload.model_dump())
+    return {"experience": experience, "next_action": "Verify the candidate before it can be served to a teammate."}
 
 
-@app.post("/distill", response_model=DistillResponse, tags=["hive"])
-def distill(payload: DistillRequest, request: Request) -> DistillResponse:
-    """Hackathon-safe distillation with deterministic extraction and persistence."""
-
-    transcript_lower = payload.transcript.lower()
-    if "postgres" in transcript_lower or "pg_hba" in transcript_lower:
-        source = next(skill for skill in SEED_SKILLS if skill.name == "Connect_Internal_Postgres.skill")
-        name = source.name
-        bug_signature = source.bug_signature
-        working_code = source.working_code
-        tags = list(source.tags)
-        assumptions = list(source.env_assumptions)
-    else:
-        name = "Team_Debug_Resolution.skill"
-        bug_signature = "A solved internal platform incident with a verified executable fix"
-        working_code = "#!/usr/bin/env bash\nset -euo pipefail\n# Replace with the verified commands from the incident.\n"
-        tags = ["platform", "debug", "team-memory"]
-        assumptions = ["The veteran confirmed the fix in the target environment"]
-
-    store: SkillStore = request.app.state.skill_store
-    store.save_distilled(
-        name=name,
-        bug_signature=bug_signature,
-        working_code=working_code,
-        tags=tags,
-        env_assumptions=assumptions,
-    )
-    return DistillResponse(
-        saved=True,
-        skill_name=name,
-        bug_signature=bug_signature,
-        working_code=working_code,
-        tags=tags,
-        env_assumptions=assumptions,
-        model_mode="mock",
-    )
+@app.post("/api/experiences/{experience_id}/verify", tags=["verify"])
+def verify_experience(experience_id: str, payload: VerifyRequest, request: Request) -> dict[str, Any]:
+    store = store_for(request)
+    experience = store.get(experience_id)
+    if experience is None:
+        raise HTTPException(status_code=404, detail="Experience not found.")
+    updated = store.verify(experience_id, verify(experience, payload.model_dump()))
+    return {"experience": updated, "serveable": updated["status"] == "verified"}
 
 
-@app.post("/preflight", response_model=PreflightResponse, tags=["hive"])
-def preflight(payload: PreflightRequest, request: Request) -> PreflightResponse:
-    """Prevent an expensive repeat failure before any resource is allocated."""
+@app.post("/api/recall", tags=["serve"])
+def recall(payload: RecallRequest, request: Request) -> dict[str, Any]:
+    receipts = store_for(request).recall(**payload.model_dump())
+    return {
+        "query": payload.query,
+        "consumer": payload.consumer,
+        "receipts": receipts,
+        "served_only_verified_visible_experiences": True,
+    }
 
-    store: SkillStore = request.app.state.skill_store
-    match = store.search_failed_experiment(payload.plan)
-    if match is None or float(match["similarity"]) < get_settings().preflight_similarity_threshold:
-        return PreflightResponse(hit=False)
 
-    llm = LLMClient(get_settings())
-    generated = llm.explain_preflight(payload.plan, match)
-    return PreflightResponse(
-        hit=True,
-        skill_name=str(match["name"]),
-        similarity=float(match["similarity"]),
-        author=str(match["author"]),
-        created_days_ago=int(match["created_days_ago"]),
-        resource_cost=str(match["resource_cost"]),
-        ai_message=generated.text,
-        safer_script=str(match["working_code"]),
-        model_mode=generated.mode,
-        resource_created=False,
-        proposed_gpu_hours=152,
-        historical_gpu_hours=148,
-        safer_gpu_hours=6,
-        accuracy_gain_percent=3,
-        comparison=[
-            ComparisonItem(dimension="Data type", current_plan="Production Kubernetes logs", prior_experiment="Production Kubernetes logs"),
-            ComparisonItem(dimension="Data volume", current_plan="~8 TB / 30 days", prior_experiment="7.6 TB / 30 days"),
-            ComparisonItem(dimension="Processing", current_plan="Full embedding run", prior_experiment="Full embedding run"),
-            ComparisonItem(dimension="Resources", current_plan="8 GPU × 19h", prior_experiment="8 GPU × 18.5h"),
-        ],
-    )
+@app.post("/api/gateway/events", status_code=201, tags=["connection"])
+def gateway_event(payload: GatewayEvent, request: Request) -> dict[str, Any]:
+    if not payload.consent:
+        raise HTTPException(status_code=422, detail="Gateway event was not captured because consent is disabled.")
+    experience = store_for(request).create_candidate({
+        "actor": payload.actor,
+        "task": payload.tool_call,
+        "trace_summary": payload.result,
+        "tool_name": payload.tool_name,
+        "tags": payload.tags,
+        "visibility": payload.visibility,
+        "consent": payload.consent,
+        "outcome": "success" if payload.succeeded else "failed",
+    })
+    return {"captured": True, "experience": experience, "note": "The gateway records a candidate; it never serves it before verification."}
+
+
+@app.post("/mcp", tags=["connection"])
+def mcp(payload: MCPRequest, request: Request) -> dict[str, Any]:
+    return handle(payload.id, payload.method, payload.params, store_for(request))
+
+
+@app.get("/api/dashboard/user/{actor}", tags=["dashboard"])
+def user_dashboard(actor: str, request: Request) -> dict[str, Any]:
+    return store_for(request).user_dashboard(actor)
+
+
+@app.get("/api/dashboard/team", tags=["dashboard"])
+def team_dashboard(request: Request) -> dict[str, Any]:
+    return store_for(request).team_dashboard()
+
+
+@app.get("/api/dashboard/admin", tags=["dashboard"])
+def admin_dashboard(request: Request) -> dict[str, Any]:
+    return store_for(request).admin_dashboard()
+
+
+@app.post("/api/demo/reset", tags=["system"])
+def reset_demo(request: Request) -> dict[str, str]:
+    store_for(request).reset_demo()
+    return {"status": "reset", "message": "The transparent local fixtures were restored."}

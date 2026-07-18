@@ -1,9 +1,10 @@
-VETERAN — TYPE THIS
-I fixed an internal PostgreSQL connection failure. The database requires the corporate VPN, sslmode=verify-full, and our internal CA certificate. The working Bash script validates VPN reachability, checks the certificate, and runs psql with TLS verification.
+# Org_system demo prompts
 
-NEW HIRE — TYPE THIS
-I want to build semantic search for our logs. I plan to request 8 GPUs and vectorize approximately 8 TB of production Kubernetes logs from the last 30 days. Help me execute this plan.
+# Use with recall_experience as consumer Tom
+How do I make the Postia placenta iDynoMiCS 2 validation config grow spatially?
 
-OPTIONAL DEBUG REUSE — TYPE THIS
-PostgreSQL FATAL: no pg_hba.conf entry for host 10.2.18.91. The connection also times out from my laptop.
+# Capture this as a candidate, then verify it
+The simulation completed after enabling FungalGrowthManager.updateBody and AgentRelaxation. Radial growth is now nonzero.
 
+# A negative experiment remains visible to admins but must not be served as verified
+We plan to embed 30 days of Kubernetes logs. Check whether an existing verified experience applies.

@@ -1,30 +1,17 @@
 # Judge Q&A
 
-## Is this just RAG over internal documents?
+## Is this just RAG?
 
-No. Ordinary RAG returns text. Hive.skill stores an operational contract: a fingerprint, environment assumptions, outcome, resource evidence, stop conditions, and executable code. It can produce a fix or block an expensive plan before execution.
+No. RAG retrieves notes. Org_system captures an experience lifecycle: candidate, verification verdict, visibility/consent, stale state, provenance receipt, and a measured consumption event. Candidate and stale entries cannot be served as trustworthy context.
 
-## What is actually real in the demo?
+## Is the simulator real in the demo?
 
-ChromaDB persistence and retrieval, similarity scoring, all FastAPI endpoints, optional LLM analysis, and the generated scripts are real. Terminal execution and resource blocking are explicitly simulated.
+The product contract is real and the metric comparator is executable. The browser demo uses labelled local metrics fixtures because an iDynoMiCS runtime is not bundled. The adapter seam and full Postia asset schema are included so a real runner can replace the fixture without changing capture, verification, storage, or serving.
 
-## Why store failed experiments?
+## What is the MCP implementation?
 
-Failures often contain the most expensive organizational knowledge, but they are rarely documented. A failed experiment can save more money than a successful snippet if it prevents an identical large-scale run.
+`POST /mcp` implements the two product tools through JSON-RPC: `recall_experience` and `store_experience`. `POST /api/gateway/events` is the proxy/adaptor capture boundary. Production deployment should mount the same handlers through the official streamable-HTTP MCP SDK transport.
 
-## How do you avoid blocking genuinely new ideas?
+## Why SQLite rather than SYNAPSE?
 
-Hive shows evidence and similarity rather than issuing a silent denial. The safe default is a capped validation plan, not a permanent prohibition. Engineers can inspect the prior run and proceed after proving the new conditions differ.
-
-## Why use an LLM after vector retrieval?
-
-Vector retrieval finds a candidate. The LLM compares the current conditions with the historical evidence and explains whether the old result actually applies. This reduces keyword-only false positives.
-
-## How would this become production-ready?
-
-Add SSO/RBAC, audit logs, Git-backed skill review, secret scanning, signed scripts, policy-as-code enforcement, real job admission controls, and evaluation datasets for retrieval precision.
-
-## What is the moat?
-
-The accumulated executable failure memory: private environment assumptions, verified fixes, resource outcomes, and stop conditions that generic models and public documentation do not contain.
-
+SYNAPSE code is not a dependency of this hackathon build. SQLite makes the demo reproducible and has a narrow `ExperienceStore` boundary. It uses episodic records, semantic tag nodes, and activation-lite scoring today; a released native engine can replace it later.

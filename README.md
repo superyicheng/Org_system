@@ -1,69 +1,77 @@
-# Hive.skill
+# Org_system
 
-Hive.skill turns proven fixes and failed experiments into executable team memory. It retrieves that memory when a new engineer encounters the same error—or before an expensive plan consumes resources.
+Org_system is an organizational experience layer for AI tools. It captures a completed tool trace as an **experience candidate**, verifies the claim, stores it with visibility and provenance, and lets a teammate's AI recall only verified, visible experiences with an attribution receipt.
 
-## Fastest start on Windows
+This repository implements the vertical slice described in [the system design report](docs/SYSTEM_DESIGN_AND_BUILD_REPORT.md):
 
-1. Double-click `START_DEMO.cmd`.
-2. Wait for the browser to open.
-3. Use the prompts in `demo-prompts.txt`.
-4. Double-click `STOP_DEMO.cmd` after the presentation.
+```text
+MCP / tool adapter → automatic capture → verifier → MemoryStore → receipt-backed recall → dashboards
+```
 
-The first launch creates `backend/.venv` and installs local dependencies. If installation or the LLM fails, the demo still runs with an explicit mock label.
+The local implementation uses SQLite as a swappable, SYNAPSE-compatible memory backend: each experience is an episodic record, tags act as semantic nodes, and retrieval uses lexical matching plus a small graph-activation bonus. It is intentionally behind `ExperienceStore`, so a native SYNAPSE or graph/vector backend can replace it later.
 
-## Manual backend start
+## What works now
 
-```powershell
+- `POST /mcp`: JSON-RPC MCP surface with `recall_experience` and `store_experience`.
+- `POST /api/gateway/events`: capture boundary for a proxy or adapter to log a completed tool call.
+- `POST /api/capture`: creates a consent-scoped, non-serveable candidate.
+- `POST /api/experiences/{id}/verify`: pluggable `outcome_signal`, `tests_ci`, `llm_judge`, and tolerance-based `rerun_and_compare` verification.
+- `POST /api/recall`: filters to verified and visible experience, returns provenance/verification receipts, and records attributed reuse.
+- User, team-discovery, and admin-health dashboards in the zero-build frontend.
+- A first simulation workflow based on the Postia/iDynoMiCS design asset; the on-screen rerun uses a clearly labelled local metrics fixture, not a real simulator execution.
+
+## Run locally
+
+Requirements: Python 3.11+.
+
+```bash
 cd backend
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Open `Hive.skill-demo.html` in Edge or Chrome. API documentation is at <http://127.0.0.1:8000/docs>.
+Then open `http://127.0.0.1:8000` for the dashboard. Alternatively, serve the standalone [frontend/index.html](frontend/index.html):
 
-## Optional live LLM
-
-Copy `backend/.env.example` to `backend/.env` and set:
-
-```env
-HIVE_LLM_API_KEY=your_api_key
-HIVE_LLM_MODEL=gpt-5.6-luna
+```bash
+cd frontend
+python -m http.server 3000
 ```
 
-No key is required for the complete offline demo.
+API documentation is available at `http://127.0.0.1:8000/docs`.
 
-## What is real and what is simulated
+The first launch creates `backend/data/org_system.sqlite3` and seeds three explicitly labelled local fixtures. Use **Reset demo** to restore them. That database is intentionally ignored by Git.
 
-Real:
+## Verify the core loop
 
-- deterministic fingerprint extraction;
-- ChromaDB vector storage and similarity retrieval;
-- `/retrieve`, `/distill`, `/preflight`, and `/hive/stats` APIs;
-- optional LLM reasoning and script adaptation;
-- executable Bash scripts shown in the editor.
-
-Simulated for the two-day hackathon:
-
-- terminal execution animation;
-- Kubernetes/GPU resource creation and blocking;
-- the final savings animation.
-
-## API summary
-
-- `POST /distill` — persists a solved incident as a reusable skill.
-- `POST /retrieve` — retrieves a successful fix and adapts its script.
-- `POST /preflight` — retrieves failed experiments before execution.
-- `GET /hive/stats` — returns team-memory impact statistics.
-- `GET /health` — launcher health check.
-
-## Validation
-
-With the backend running:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\smoke-test.ps1
+```bash
+cd backend
+python -m unittest discover -s tests -v
 ```
 
-See `docs/` for the pitch, judge Q&A, architecture, and presentation checklist.
+The test proves that a candidate cannot be recalled until it passes verification, then confirms that a teammate can retrieve it with a receipt. For the scripted demo, follow [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
+## MCP test request
+
+```bash
+curl -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+## Hackathon evidence: Codex and timeframe
+
+The official rules require a project made with **Codex using GPT-5.6**, a public <3-minute YouTube demo that explains how both were used, a working repository, and the `/feedback` Session ID from the project thread where most core functionality was built. They also require new projects to be created during the Submission Period, or existing projects to be meaningfully extended during it with clear evidence distinguishing old and new work.
+
+This repository's baseline `Hive.skill` prototype was replaced by the Org_system implementation in this working tree. Before submitting, follow [docs/HACKATHON_EVIDENCE.md](docs/HACKATHON_EVIDENCE.md): make a dated commit of this implementation during the July 13–21, 2026 PT Submission Period; obtain the actual `/feedback` Session ID from the GPT-5.6 Codex thread; and replace its placeholders with honest, timestamped evidence. Do not invent a session ID or claim a model version that the session metadata does not confirm.
+
+The required Codex collaboration narrative and the project-specific engineering decisions are in [docs/SUBMISSION_SUMMARY.md](docs/SUBMISSION_SUMMARY.md). The recommended category is **Work & Productivity**.
+
+## Project map
+
+- [backend/app/main.py](backend/app/main.py) — FastAPI layer and API routes.
+- [backend/app/experience_store.py](backend/app/experience_store.py) — `MemoryStore` implementation, access filtering, activation-lite recall, and dashboard queries.
+- [backend/app/verifiers.py](backend/app/verifiers.py) — verification lifecycle rules.
+- [backend/app/mcp_server.py](backend/app/mcp_server.py) — MCP tool surface.
+- [frontend/index.html](frontend/index.html) — interactive capture → verify → serve demo and dashboards.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — implementation architecture.
+- [docs/COMMANDS.md](docs/COMMANDS.md) — API examples.

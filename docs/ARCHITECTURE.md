@@ -1,38 +1,34 @@
-# Architecture
+# Org_system implementation architecture
 
 ```text
-Veteran resolution
-    ↓ POST /distill
-Fingerprint + assumptions + executable fix
-    ↓
-Local ChromaDB collection
-
-New-hire error
-    ↓ POST /retrieve
-Noise reduction → vector search → LLM validation/adaptation
-    ↓
-Executable fix script
-
-New-hire execution plan
-    ↓ POST /preflight
-Plan fingerprint → failed-run vector search → LLM applicability check
-    ↓
-Evidence comparison + safer capped script
+MCP client / tool adapter
+          │
+          ├── POST /mcp (recall_experience, store_experience)
+          └── POST /api/gateway/events (captured trace)
+                           │
+                           ▼
+                 ExperienceStore.create_candidate()
+                           │ candidate: never served
+                           ▼
+                 verifier (outcome / test / rerun)
+                           │ verified, stale, or rejected
+                           ▼
+ SQLite episodic records + tag semantic nodes + usage events
+                           │
+                           ▼
+           visibility-filtered activation-lite recall
+                           │
+                           ▼
+     teammate's AI gets a provenance + verification receipt
 ```
 
-## Components
+`ExperienceStore` is the `MemoryStore` seam. SQLite keeps the hackathon project runnable with no cloud account. Its retrieval is deliberately modest: token overlap finds entry nodes, tag overlap adds a semantic activation bonus, then the store returns only consented, `verified` experiences. The public API does not pretend this is native SYNAPSE; a native graph/vector engine can replace this file without changing the routes.
 
-- `Hive.skill-demo.html`: zero-build stage UI with explicit API/mock labels.
-- `backend/app/main.py`: FastAPI routes and orchestration.
-- `backend/app/vector_store.py`: ChromaDB persistence, fingerprints, retrieval.
-- `backend/app/llm_client.py`: switchable Responses API client with mock fallback.
-- `backend/app/seed_data.py`: four idempotent seed skills, including one failed experiment.
-- `scripts/`: launcher, stop control, and smoke test.
+Lifecycle state is explicit:
 
-## Demo safety boundaries
+```text
+candidate --verify(pass)--> verified --reverify(diverge/env break)--> stale
+candidate --verify(fail)--> candidate with REJECTED verdict
+```
 
-- No real production credentials are stored.
-- Scripts use environment-variable placeholders.
-- No Docker sandbox or real GPU workload is launched.
-- LLM failure never breaks the presentation path.
-
+The dashboard queries are derived from the same storage: contribution comes from `experiences`; attribution comes from `usage_events`; health and rot come from lifecycle fields and `capture_events`.

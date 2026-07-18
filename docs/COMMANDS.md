@@ -1,58 +1,47 @@
-# Commands
+# Org_system commands
 
-## One-click Windows launch
+Start the API from `backend/`:
 
-```text
-START_DEMO.cmd
+```bash
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Stop the background API:
+Check the service:
 
-```text
-STOP_DEMO.cmd
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/api/dashboard/admin
 ```
 
-## Manual setup
+Capture an experience candidate:
 
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```bash
+curl -X POST http://127.0.0.1:8000/api/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"actor":"Sarah","task":"Run a validated simulation","trace_summary":"The run completed and emitted metrics.","tool_name":"simulation adapter","tags":["simulation"],"visibility":"team","consent":true}'
 ```
 
-## Health and stats
+Verify the returned experience ID with an objective outcome:
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-Invoke-RestMethod http://127.0.0.1:8000/hive/stats
+```bash
+curl -X POST http://127.0.0.1:8000/api/experiences/EXP_ID/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"method":"outcome_signal","outcome_succeeded":true}'
 ```
 
-## Retrieve a proven fix
+Recall for a teammate. This call creates an attributed usage event by default:
 
-```powershell
-$body = @{ error = "PostgreSQL FATAL: no pg_hba.conf entry; connection timed out" } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/retrieve -ContentType application/json -Body $body
+```bash
+curl -X POST http://127.0.0.1:8000/api/recall \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Postia spatial growth iDynoMiCS","consumer":"Tom","limit":3}'
 ```
 
-## Guard an expensive plan
+Exercise the MCP tools:
 
-```powershell
-$body = @{ plan = "Vectorize 8 TB of production Kubernetes logs from 30 days using 8 GPUs" } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/preflight -ContentType application/json -Body $body
+```bash
+curl -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"recall_experience","arguments":{"query":"Postia spatial growth","consumer":"Tom"}}}'
 ```
-
-## Distill a veteran resolution
-
-```powershell
-$body = @{ transcript = "Solved PostgreSQL access using corporate VPN, internal CA, and sslmode verify-full." } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/distill -ContentType application/json -Body $body
-```
-
-## Run all smoke checks
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\smoke-test.ps1
-```
-
