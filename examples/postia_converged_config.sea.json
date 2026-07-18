@@ -1,0 +1,77 @@
+{
+  "id": "sea-idyn2-postia-converged-0001",
+  "schema_version": "0.1.0",
+  "kind": "converged_config",
+  "domain": "idynomics2/fungal-growth",
+  "title": "Postia placenta 3D validation config that grows spatially (post updateBody fix)",
+  "summary": "iDynoMiCS 2 protocol for Postia placenta hyphal growth that reproduces spatial expansion validated against Du & Perré 2016, after the FungalGrowthManager updateBody + AgentRelaxation fix.",
+
+  "provenance": {
+    "captured_from": "run/postia-placenta-validation/2026-02-25-17day",
+    "captured_by": "capture-hook@org_system",
+    "captured_at": "2026-02-25T00:00:00Z",
+    "origin_actor": "postia-validation-workflow",
+    "source_refs": [
+      "Du & Perré 2016 (CLSM Postia placenta observations, Table 1)",
+      "Du & Perré 2018 (lattice fungal growth model)",
+      "internal:fix-zero-spatial-growth-2026-03-11"
+    ],
+    "consent": { "opt_in": true, "scope": "config + environment + summary metrics; raw intermediate frames excluded" }
+  },
+
+  "environment": {
+    "runner": "idynomics2",
+    "runner_version": "july-2025-build",
+    "versions": {
+      "idynomics_jar_hash": "REPLACE_WITH_JAR_SHA256",
+      "java": "REPLACE_WITH_JAVA_VERSION",
+      "os": "REPLACE_WITH_OS"
+    },
+    "flags": [],
+    "submission": "java -jar <IDYNOMICS_2_JAR> protocol/postia_placenta_validation.xml"
+  },
+
+  "inputs": {
+    "config_ref": "protocol/postia_placenta_validation.xml",
+    "config_hash": "REPLACE_WITH_CONFIG_SHA256",
+    "data_refs": [],
+    "salient_parameters": {
+      "note": "Illustrative — fill from the real run manifest, do not trust these numbers as-is.",
+      "morphology": "rod/filament chain",
+      "growth": "tip-only",
+      "requires_process_managers": ["FungalGrowthManager (with updateBody)", "AgentRelaxation"],
+      "run_duration": "17 days (sim time)"
+    }
+  },
+
+  "expected_result": {
+    "metrics": [
+      { "name": "final_agent_count", "value": 171842, "tolerance": "rel:0.05", "unit": "agents" },
+      { "name": "mass_growth_shape", "value": "linear", "tolerance": "exact" },
+      { "name": "spatial_expansion", "value": "nonzero_radial", "tolerance": "sign",
+        "unit": "colony radius delta > 0 — this is the property the pre-fix config FAILED" }
+    ],
+    "output_artifacts": [
+      { "name": "summary.csv", "hash": "REPLACE_WITH_OUTPUT_HASH" }
+    ]
+  },
+
+  "verification": {
+    "method": "rerun_and_compare",
+    "determinism": "stochastic",
+    "seed": "REPLACE_WITH_SEED",
+    "n_repeats": 3,
+    "comparator": "postia-summary-comparator@v0",
+    "last_verdict": "UNVERIFIED",
+    "last_verified_at": null,
+    "reverify_after_days": 30
+  },
+
+  "rationale": "Spatial growth was zero until updateBody was called inside FungalGrowthManager and AgentRelaxation was added to the protocol; without both, mass grows linearly but the colony never expands radially, which fails Du & Perré validation. This is the asset that encodes 'why the colony now spreads'.",
+
+  "status": "candidate",
+
+  "links": [
+    "sea-idyn2-postia-zerogrowth-negresult-0001 (the pre-fix config this supersedes)"
+  ]
+}

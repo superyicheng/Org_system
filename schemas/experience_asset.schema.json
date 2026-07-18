@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://org-system.dev/schemas/experience_asset.schema.json",
+  "title": "Experience Asset",
+  "description": "The general, tool-agnostic atom of Org_system. One captured, verifiable unit of work experience — grabbed automatically from an AI tool a user works through, stored in SYNAPSE memory, and served as context to a colleague's AI tool. Domain-specific fields (e.g. simulation) live under `domain_extension` so the core stays general across every tool and workflow.",
+  "type": "object",
+  "required": ["id", "schema_version", "source", "actor", "captured_at", "task", "outcome", "verification", "status", "visibility"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "description": "Stable unique id, e.g. 'exp-idyn2-postia-0001'." },
+    "schema_version": { "type": "string", "const": "0.1.0" },
+
+    "source": {
+      "type": "object",
+      "description": "Which AI tool / connector this experience was captured from.",
+      "required": ["tool", "connector"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "type": "string", "description": "e.g. 'claude-code', 'cursor', 'idynomics2-runner', 'custom-webhook'." },
+        "tool_version": { "type": "string" },
+        "connector": { "type": "string", "description": "The ToolConnector adapter id that captured it, e.g. 'mcp-gateway', 'idynomics2-adapter'." }
+      }
+    },
+
+    "actor": {
+      "type": "object",
+      "description": "WHOSE experience this is. Drives attribution ('whose experiences am I using') and who-knows-what.",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "team_id": { "type": "string" },
+        "org_id": { "type": "string" }
+      }
+    },
+
+    "captured_at": { "type": "string", "format": "date-time" },
+    "captured_by": { "type": "string", "description": "The capture process/connector instance." },
+
+    "task": {
+      "type": "object",
+      "description": "What the user was trying to do.",
+      "required": ["goal", "domain"],
+      "additionalProperties": false,
+      "properties": {
+        "goal": { "type": "string", "description": "Plain-language objective, e.g. 'make Postia colony expand spatially'." },
+        "domain": { "type": "string", "description": "Domain path, e.g. 'simulation/idynomics2', 'coding/python'." }
+      }
+    },
+
+    "trace_summary": {
+      "type": "string",
+      "description": "LLM-distilled narrative of what actually happened (actions, key decisions, dead ends). Produced automatically at capture — this is the 'grab information automatically' output."
+    },
+
+    "outcome": {
+      "type": "object",
+      "description": "Did it work? The raw signal the verifier uses.",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["success", "failure", "partial", "unknown"] },
+        "signal": { "type": "string", "description": "How we know, e.g. 'tests passed', 'run reproduced', 'user marked good', 'ticket closed'." }
+      }
+    },
+
+    "content": {
+      "type": "object",
+      "description": "The reusable payload: the actual experience a colleague's AI should inherit.",
+      "additionalProperties": false,
+      "properties": {
+        "what_worked": { "type": "string" },
+        "what_failed": { "type": "string", "description": "Negative result — the most valuable, least-recorded asset." },
+        "rationale": { "type": "string", "description": "The 'why' (Polanyi target). Explains; never certifies. Trust comes from `verification`." },
+        "artifacts": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "ref": { "type": "string" }, "hash": { "type": "string" } } } }
+      }
+    },
+
+    "domain_extension": {
+      "type": "object",
+      "description": "Domain-specific structured fields. For simulation, this is the Simulation Experience Asset (see schemas/simulation_experience_asset.schema.json). Kept separate so the core Experience Asset is general across all tools/workflows.",
+      "properties": {
+        "$ref_schema": { "type": "string", "description": "URI of the domain schema these fields conform to." }
+      },
+      "additionalProperties": true
+    },
+
+    "verification": {
+      "type": "object",
+      "description": "How this experience is checked. Simple now; pluggable per domain.",
+      "required": ["method", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["llm_judge", "outcome_signal", "rerun_and_compare", "tests_ci", "consensus", "none"],
+          "description": "Phase 0 default per domain: simulation -> rerun_and_compare, general -> llm_judge or outcome_signal."
+        },
+        "verdict": { "type": "string", "enum": ["UNVERIFIED", "VERIFIED", "REJECTED", "STALE", "INCONCLUSIVE"] },
+        "verified_at": { "type": "string", "format": "date-time" },
+        "reverify_after_days": { "type": "integer", "description": "Rot control: re-check on a schedule." },
+        "detail": { "type": "string" }
+      }
+    },
+
+    "status": { "type": "string", "enum": ["candidate", "verified", "stale", "retired"] },
+
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin_run": { "type": "string" },
+        "source_refs": { "type": "array", "items": { "type": "string" } },
+        "links": { "type": "array", "items": { "type": "string" }, "description": "Related experience ids (supersedes / contradicts / derived-from)." }
+      }
+    },
+
+    "visibility": {
+      "type": "object",
+      "description": "Permissions — WHOSE experience is served to WHOM. Answers the surveillance/consent tension.",
+      "required": ["scope"],
+      "additionalProperties": false,
+      "properties": {
+        "scope": { "type": "string", "enum": ["private", "team", "org"] },
+        "allow_list": { "type": "array", "items": { "type": "string" }, "description": "Explicit user/team ids beyond scope." },
+        "consent": { "type": "object", "properties": { "opt_in": { "type": "boolean" }, "captured_scope": { "type": "string" } } }
+      }
+    },
+
+    "memory": {
+      "type": "object",
+      "description": "Linkage into SYNAPSE. Set by the storage layer, not the capture layer.",
+      "additionalProperties": false,
+      "properties": {
+        "episodic_node_id": { "type": "string" },
+        "semantic_node_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "usage": {
+      "type": "object",
+      "description": "Consumption stats that power the dashboards.",
+      "additionalProperties": false,
+      "properties": {
+        "times_served": { "type": "integer" },
+        "last_served_at": { "type": "string", "format": "date-time" },
+        "served_to": { "type": "array", "items": { "type": "string" }, "description": "Actor ids who consumed this experience (for 'whose experiences am I using')." }
+      }
+    },
+
+    "tags": { "type": "array", "items": { "type": "string" } }
+  }
+}

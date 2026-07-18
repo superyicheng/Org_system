@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://org-system.dev/schemas/simulation_experience_asset.schema.json",
+  "title": "Simulation Experience Asset (SEA)",
+  "description": "One unit of captured, machine-verifiable simulation experience. The atom of Org_system's Tier-1 experience layer. An SEA is only trustworthy while its `verification.last_verdict` is REPRODUCED and it is not `stale`. The verifier — not a human approval gate — is what promotes a candidate to verified and what retires it when it rots.",
+  "type": "object",
+  "required": ["id", "schema_version", "kind", "domain", "provenance", "environment", "inputs", "expected_result", "verification", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "description": "Stable unique id, e.g. 'sea-idyn2-postia-converged-0001'." },
+    "schema_version": { "type": "string", "const": "0.1.0" },
+
+    "kind": {
+      "type": "string",
+      "description": "Which invisible-asset type this is. Phase 0 implements only 'converged_config'; the rest are Phase 2.",
+      "enum": ["converged_config", "negative_result", "environment_incantation", "parameter_intuition", "decision_rationale"]
+    },
+    "domain": { "type": "string", "description": "Runner/subdomain path, e.g. 'idynomics2/fungal-growth'." },
+    "title": { "type": "string" },
+    "summary": { "type": "string", "description": "One-line searchable description." },
+
+    "provenance": {
+      "type": "object",
+      "required": ["captured_from", "captured_by", "source_refs"],
+      "additionalProperties": false,
+      "properties": {
+        "captured_from": { "type": "string", "description": "Run id / workflow id the asset was distilled from." },
+        "captured_by": { "type": "string", "description": "Agent or process that captured it." },
+        "captured_at": { "type": "string", "format": "date-time" },
+        "origin_actor": { "type": "string", "description": "Human or agent whose work produced the original run (for who-knows-what / transactive memory)." },
+        "source_refs": { "type": "array", "items": { "type": "string" }, "description": "Papers, tickets, prior SEA ids that justify this asset (e.g. 'Du & Perré 2016')." },
+        "consent": {
+          "type": "object",
+          "description": "Scoped, inspectable capture permission. Surveillance-tension mitigation (spec §9).",
+          "additionalProperties": false,
+          "properties": {
+            "opt_in": { "type": "boolean" },
+            "scope": { "type": "string", "description": "What the origin actor authorized to be captured from this run." }
+          }
+        }
+      }
+    },
+
+    "environment": {
+      "type": "object",
+      "description": "Everything needed to reconstruct the execution environment. The 'incantations' from doc §3.",
+      "required": ["runner", "versions"],
+      "additionalProperties": false,
+      "properties": {
+        "runner": { "type": "string", "description": "Runner adapter id, e.g. 'idynomics2'." },
+        "runner_version": { "type": "string" },
+        "versions": {
+          "type": "object",
+          "description": "Version/hash of every component that can change the result (jar hash, java version, os, key libs).",
+          "additionalProperties": { "type": "string" }
+        },
+        "flags": { "type": "array", "items": { "type": "string" } },
+        "submission": { "type": "string", "description": "Exact command / submission script that launches the run." }
+      }
+    },
+
+    "inputs": {
+      "type": "object",
+      "required": ["config_ref", "config_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "config_ref": { "type": "string", "description": "Path/URI to the protocol/config artifact (e.g. postia_placenta_validation.xml)." },
+        "config_hash": { "type": "string", "description": "Content hash of the config — makes the asset content-addressed and tamper-evident." },
+        "data_refs": { "type": "array", "items": { "type": "string" }, "description": "Input data hashes/URIs and their provenance/quirks (doc §3)." },
+        "salient_parameters": {
+          "type": "object",
+          "description": "The handful of parameters a human/agent should read to understand the asset.",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "expected_result": {
+      "type": "object",
+      "description": "The machine-checkable claim this asset makes. Verification succeeds iff a re-run reproduces these within tolerance.",
+      "required": ["metrics"],
+      "additionalProperties": false,
+      "properties": {
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "value", "tolerance"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "value": {},
+              "unit": { "type": "string" },
+              "tolerance": { "type": "string", "description": "Equivalence rule, e.g. 'rel:0.05', 'abs:1e-6', 'exact', 'sign'." }
+            }
+          }
+        },
+        "output_artifacts": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "name": { "type": "string" }, "hash": { "type": "string" } } }
+        }
+      }
+    },
+
+    "verification": {
+      "type": "object",
+      "description": "How this asset is (re)checked. The reproducibility gate.",
+      "required": ["method", "determinism", "last_verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["rerun_and_compare", "rerun_expect_failure", "clean_env_rerun", "consensus", "adversarial"],
+          "description": "Phase 0 uses rerun_and_compare. rerun_expect_failure verifies negative_result assets. Later kinds map to later methods."
+        },
+        "determinism": { "type": "string", "enum": ["deterministic", "seeded", "stochastic"] },
+        "seed": {},
+        "n_repeats": { "type": "integer", "minimum": 1, "description": "For stochastic runs: repeats to form a distribution the comparator tests against." },
+        "comparator": { "type": "string", "description": "Named comparator/tolerance policy that turns a re-run into a verdict." },
+        "last_verdict": {
+          "type": "string",
+          "enum": ["UNVERIFIED", "REPRODUCED", "DIVERGED", "ENV_BROKEN", "INCONCLUSIVE"],
+          "description": "REPRODUCED is the only trustworthy state. DIVERGED/ENV_BROKEN/INCONCLUSIVE force status change."
+        },
+        "last_verified_at": { "type": "string", "format": "date-time" },
+        "reverify_after_days": { "type": "integer", "description": "Rot control: re-run this asset on a schedule; on failure move status -> stale/retired." }
+      }
+    },
+
+    "rationale": {
+      "type": "string",
+      "description": "The 'why it works' / 'why we don't do X anymore'. The Polanyi target (doc §3) — may be thin or empty at capture; enriched over time. Never trusted without the verifier; it explains, it does not certify."
+    },
+
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "verified", "stale", "retired"],
+      "description": "candidate = captured, not yet reproduced by a second run. verified = REPRODUCED. stale = failed a scheduled re-verify or its environment moved. retired = superseded or permanently non-reproducing."
+    },
+
+    "links": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Related SEA ids (supersedes, contradicts, derived-from). Lets negative results point at the config they rule out."
+    }
+  }
+}
