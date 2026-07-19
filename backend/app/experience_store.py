@@ -7,6 +7,7 @@ replace it later without changing capture, verification, serving, or the UI.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 import uuid
@@ -16,7 +17,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+from jsonschema import Draft202012Validator
+
 from app.seed_data import demo_experiences
+from app.semantic_index import cosine, embed
+
+
+SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "experience_asset.schema.json"
+SCHEMA_VALIDATOR = Draft202012Validator(json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
 
 
 STOP_WORDS = {
@@ -26,6 +34,19 @@ STOP_WORDS = {
 
 def now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def content_hash(experience: dict[str, Any]) -> str:
+    canonical = json.dumps(experience, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
+def validate_asset(experience: dict[str, Any]) -> None:
+    errors = sorted(SCHEMA_VALIDATOR.iter_errors(experience), key=lambda error: list(error.path))
+    if errors:
+        error = errors[0]
+        location = ".".join(str(part) for part in error.path) or "root"
+        raise ValueError(f"Experience schema violation at {location}: {error.message}")
 
 
 def tokens(value: str) -> set[str]:
@@ -88,7 +109,7 @@ def _normalize_asset(item: dict[str, Any]) -> dict[str, Any]:
         "source": {"tool": tool, "connector": raw_source.get("connector", "org-system-capture")},
         "actor": {"id": display_name.lower().replace(" ", "-"), "display_name": display_name},
         "captured_at": item.get("captured_at", now()),
-        "captured_by": item.get("captured_by", raw_source.get("captured_by", "Org_system capture")),
+        "captured_by": item.get("captured_by", raw_source.get("captured_by", "org.system capture")),
         "task": {"goal": goal, "domain": raw_task.get("domain", domain_extension.get("domain", "general")) if isinstance(raw_task, dict) else domain_extension.get("domain", "general")},
         "trace_summary": item["trace_summary"],
         "outcome": {"status": outcome_status, "signal": "captured tool outcome"},
@@ -127,6 +148,7 @@ class ExperienceStore:
                 CREATE TABLE IF NOT EXISTS experiences (
                     id TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
+                    content_hash TEXT NOT NULL DEFAULT '',
                     captured_at TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
@@ -146,8 +168,28 @@ class ExperienceStore:
                     happened_at TEXT NOT NULL,
                     FOREIGN KEY(experience_id) REFERENCES experiences(id)
                 );
+                CREATE TABLE IF NOT EXISTS experience_vectors (
+                    experience_id TEXT PRIMARY KEY,
+                    vector TEXT NOT NULL,
+                    indexed_at TEXT NOT NULL,
+                    FOREIGN KEY(experience_id) REFERENCES experiences(id)
+                );
+                CREATE TABLE IF NOT EXISTS gateway_events (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    tool_call TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    succeeded INTEGER NOT NULL,
+                    happened_at TEXT NOT NULL
+                );
                 """
             )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(experiences)").fetchall()}
+            if "content_hash" not in columns:
+                conn.execute("ALTER TABLE experiences ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
 
     def seed(self) -> None:
         if self.list_experiences():
@@ -157,15 +199,27 @@ class ExperienceStore:
 
     def save(self, experience: dict[str, Any], *, event_type: str, detail: str) -> dict[str, Any]:
         experience = _normalize_asset(dict(experience))
+        validate_asset(experience)
         serialized = json.dumps(experience, sort_keys=True)
+        digest = content_hash(experience)
         with self._connection() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO experiences (id, payload, captured_at, created_at) VALUES (?, ?, ?, ?)",
-                (experience["id"], serialized, experience["captured_at"], now()),
+                "INSERT OR REPLACE INTO experiences (id, payload, content_hash, captured_at, created_at) VALUES (?, ?, ?, ?, ?)",
+                (experience["id"], serialized, digest, experience["captured_at"], now()),
             )
             conn.execute(
                 "INSERT INTO capture_events (id, experience_id, event_type, detail, happened_at) VALUES (?, ?, ?, ?, ?)",
                 (uuid.uuid4().hex, experience["id"], event_type, detail, now()),
+            )
+            searchable = " ".join([
+                task_goal(experience), experience.get("trace_summary", ""),
+                experience.get("content", {}).get("what_worked", ""),
+                experience.get("content", {}).get("what_failed", ""),
+                " ".join(experience.get("tags", [])),
+            ])
+            conn.execute(
+                "INSERT OR REPLACE INTO experience_vectors (experience_id, vector, indexed_at) VALUES (?, ?, ?)",
+                (experience["id"], json.dumps(embed(searchable)), now()),
             )
         return experience
 
@@ -173,6 +227,11 @@ class ExperienceStore:
         with self._connection() as conn:
             row = conn.execute("SELECT payload FROM experiences WHERE id = ?", (experience_id,)).fetchone()
         return json.loads(row["payload"]) if row else None
+
+    def hash_for(self, experience_id: str) -> str | None:
+        with self._connection() as conn:
+            row = conn.execute("SELECT content_hash FROM experiences WHERE id = ?", (experience_id,)).fetchone()
+        return str(row["content_hash"]) if row else None
 
     def list_experiences(self, *, include_nonserveable: bool = True) -> list[dict[str, Any]]:
         with self._connection() as conn:
@@ -186,7 +245,7 @@ class ExperienceStore:
             "actor": payload["actor"],
             "task": payload["task"],
             "trace_summary": payload["trace_summary"],
-            "source": {"tool_name": payload["tool_name"], "captured_by": "Org_system capture"},
+            "source": {"tool_name": payload["tool_name"], "captured_by": "org.system capture"},
             "content": {"claim": payload["task"], "rationale": payload.get("rationale", "")},
             "tags": sorted({tag.strip().lower() for tag in payload.get("tags", []) if tag.strip()}),
             "outcome": payload.get("outcome", "success"),
@@ -211,7 +270,8 @@ class ExperienceStore:
             return None
         experience["status"] = result["status"]
         experience["verification"].update(result["verification"])
-        return self.save(experience, event_type="verified", detail=experience["verification"]["detail"])
+        event_type = "verified" if experience["status"] == "verified" else experience["status"]
+        return self.save(experience, event_type=event_type, detail=experience["verification"]["detail"])
 
     def _permitted(self, item: dict[str, Any], consumer: str) -> bool:
         visibility = item["visibility"]
@@ -219,26 +279,34 @@ class ExperienceStore:
 
     def recall(self, *, query: str, consumer: str, limit: int, record_usage: bool) -> list[dict[str, Any]]:
         query_terms = tokens(query)
+        query_vector = embed(query)
         candidates = [
             item for item in self.list_experiences(include_nonserveable=False)
             if self._permitted(item, consumer)
         ]
-        tag_frequencies = Counter(tag for item in candidates for tag in item.get("tags", []))
-        ranked: list[tuple[float, dict[str, Any], list[str]]] = []
+        with self._connection() as conn:
+            vector_rows = conn.execute("SELECT experience_id, vector FROM experience_vectors").fetchall()
+        vectors = {row["experience_id"]: json.loads(row["vector"]) for row in vector_rows}
+        ranked: list[tuple[float, dict[str, Any], list[str], float, float]] = []
         for item in candidates:
             searchable = " ".join([
                 task_goal(item), item["trace_summary"], item["content"].get("what_worked", ""), " ".join(item.get("tags", [])),
             ])
             direct = query_terms & tokens(searchable)
             tag_hits = query_terms & set(item.get("tags", []))
-            semantic_bonus = sum(0.15 for tag in tag_hits if tag_frequencies[tag] > 1)
-            score = len(direct) / max(len(query_terms), 1) + semantic_bonus
-            if score > 0:
-                activation_path = [f"query:{term}" for term in sorted(direct)] + [f"semantic:{tag}" for tag in sorted(tag_hits)]
-                ranked.append((round(score, 3), item, activation_path))
+            lexical_score = len(direct) / max(len(query_terms), 1)
+            vector_score = cosine(query_vector, vectors.get(item["id"], embed(searchable)))
+            score = (0.35 * lexical_score) + (0.65 * vector_score)
+            # Fail closed on weak similarity: an honest no-match is safer than
+            # presenting an unrelated team experience as precedent.
+            if score >= 0.18:
+                activation_path = [f"lexical:{term}" for term in sorted(direct)]
+                activation_path += [f"tag:{tag}" for tag in sorted(tag_hits)]
+                activation_path.append(f"vector:cosine={vector_score:.3f}")
+                ranked.append((round(score, 3), item, activation_path, lexical_score, vector_score))
         ranked.sort(key=lambda row: (row[0], row[1]["captured_at"]), reverse=True)
         results = []
-        for score, item, activation_path in ranked[:limit]:
+        for score, item, activation_path, lexical_score, vector_score in ranked[:limit]:
             receipt = {
                 "experience_id": item["id"],
                 "title": task_goal(item),
@@ -252,10 +320,15 @@ class ExperienceStore:
                 "tags": item.get("tags", []),
                 "activation_score": score,
                 "activation_path": activation_path,
+                "match_breakdown": {"lexical": round(lexical_score, 3), "semantic_vector": round(vector_score, 3)},
                 "reuse_recipe": item.get("domain_extension", {}).get("reuse_recipe"),
+                "asset_hash": self.hash_for(item["id"]),
+                "resource_evidence": item.get("domain_extension", {}).get("resource_evidence", {}),
             }
             results.append(receipt)
-            if record_usage:
+            # Only the top receipt is actually injected into the answer. Counting
+            # every ranked candidate would inflate impact and attribution.
+            if record_usage and len(results) == 1:
                 self.record_usage(item["id"], consumer, query)
         return results
 
@@ -331,14 +404,18 @@ class ExperienceStore:
                 except ValueError:
                     pass
         return {
-            "engine": "SYNAPSE-compatible SQLite graph (episodic nodes + tag activation)",
+            "engine": "SYNAPSE-compatible SQLite graph (episodic nodes + local semantic vectors)",
             "total_experiences": len(items),
             "status_counts": dict(status_counts),
             "visibility_counts": dict(visibility_counts),
             "contribution_by_member": [{"actor": actor, "count": count} for actor, count in contributions.most_common()],
             "reverify_queue": due,
             "capture_events": self.capture_events(limit=8),
+            "verified_reuse_events": sum(item.get("usage", {}).get("times_served", 0) for item in items if item["status"] == "verified"),
         }
+
+    def reverify_due(self) -> list[dict[str, Any]]:
+        return self.admin_dashboard()["reverify_queue"]
 
     def capture_events(self, *, limit: int) -> list[dict[str, str]]:
         with self._connection() as conn:
@@ -347,9 +424,43 @@ class ExperienceStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def record_gateway_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        event_id = f"gw-{uuid.uuid4().hex[:12]}"
+        happened_at = now()
+        with self._connection() as conn:
+            conn.execute(
+                """INSERT INTO gateway_events
+                   (id, session_id, actor, event_type, tool_name, tool_call, result, succeeded, happened_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (event_id, event["session_id"], event["actor"], event["event_type"], event["tool_name"],
+                 event["tool_call"], event["result"], int(event["succeeded"]), happened_at),
+            )
+        return {"id": event_id, "session_id": event["session_id"], "event_type": event["event_type"], "happened_at": happened_at}
+
+    def impact_dashboard(self) -> dict[str, Any]:
+        items = self.list_experiences()
+        reuse_events = sum(item.get("usage", {}).get("times_served", 0) for item in items)
+        avoided_gpu_hours = 0.0
+        intercepted = 0
+        for item in items:
+            uses = item.get("usage", {}).get("times_served", 0)
+            evidence = item.get("domain_extension", {}).get("resource_evidence", {})
+            if uses and evidence.get("gpu_hours") is not None and item.get("outcome", {}).get("status") == "failure":
+                avoided_gpu_hours += float(evidence["gpu_hours"]) * uses
+                intercepted += uses
+        return {
+            "verified_experiences": sum(item["status"] == "verified" for item in items),
+            "reuse_events": reuse_events,
+            "duplicate_jobs_intercepted": intercepted,
+            "gpu_hours_avoided": round(avoided_gpu_hours, 1),
+            "method": "Sum of recorded reuse events × verified resource evidence; demo fixtures are labelled.",
+        }
+
     def reset_demo(self) -> None:
         with self._connection() as conn:
             conn.execute("DELETE FROM usage_events")
             conn.execute("DELETE FROM capture_events")
+            conn.execute("DELETE FROM experience_vectors")
+            conn.execute("DELETE FROM gateway_events")
             conn.execute("DELETE FROM experiences")
         self.seed()

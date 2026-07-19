@@ -1,5 +1,7 @@
 # Org_system — System Design & Build-From-Nothing Report
 
+> Implementation update (2026-07-19): the local hackathon vertical slice is complete. See `docs/BUILD_COMPLETION_REPORT.md` for milestone evidence, automated-test coverage, and the explicit boundary between real workflow logic and demo-safe fallback.
+
 *A complete guide for someone with zero prior knowledge of this project. Read top to bottom. By the end you will understand **what** we are building, **why**, and **how to build it from an empty folder** — including which mature open-source pieces to use so you never build commodity plumbing yourself.*
 
 Working name: **Org_system** (an *organizational experience layer for AI tools*). Version of this document: draft v0.2. Context: built for a hackathon; the simulation pieces from the author's other projects are used only as the **first test workflow**, not as core infrastructure.

@@ -1,77 +1,144 @@
-# Org_system
+# org.system
 
-Org_system is an organizational experience layer for AI tools. It captures a completed tool trace as an **experience candidate**, verifies the claim, stores it with visibility and provenance, and lets a teammate's AI recall only verified, visible experiences with an attribution receipt.
+org.system is a verified organizational memory layer for AI work. It captures completed work—including expensive failures—distills it into a reusable experience, verifies the evidence, and intercepts a teammate's similar proposal before the team spends the same resources twice.
 
-This repository implements the vertical slice described in [the system design report](docs/SYSTEM_DESIGN_AND_BUILD_REPORT.md):
+The winning demo story is concrete: Sarah records that embedding 8 TB of Kubernetes logs consumed 148 GPU-hours for only a 3% quality gain. Later, Tom proposes the same full-scale job. org.system retrieves Sarah's verified negative result, generates an evidence-grounded answer, and recommends a 5% measured pilot before any expensive execution begins. Mei remains available as a third teammate to demonstrate that the memory is shared across the group.
 
-```text
-MCP / tool adapter → automatic capture → verifier → MemoryStore → receipt-backed recall → dashboards
-```
+## What is real
 
-The local implementation uses SQLite as a swappable, SYNAPSE-compatible memory backend: each experience is an episodic record, tags act as semantic nodes, and retrieval uses lexical matching plus a small graph-activation bonus. It is intentionally behind `ExperienceStore`, so a native SYNAPSE or graph/vector backend can replace it later.
+- Natural-language input from Tom, Sarah, and Mei; there are no scenario buttons.
+- Automatic trace distillation through a switchable LLM client.
+- Verified-only, consent-aware, visibility-aware hybrid retrieval (lexical + local semantic vectors).
+- JSON Schema validation and a SHA-256 content receipt for every stored asset.
+- Failed experiments can be VERIFIED negative results when their evidence is confirmed.
+- Fail-closed metric verification: a missing metric cannot silently pass.
+- Independent evidence replay in a separate Python process.
+- Attributed reuse receipts and an avoided-resource impact signal.
+- A project-scoped Codex MCP configuration plus `AGENTS.md` pre-flight/capture rules.
+- A task-boundary gateway that automatically distills completed, consented traces.
+- Provider-backed AI judging with an explicit deterministic fallback receipt.
+- User attribution, team discovery, trust-center, and measured-impact views.
+- Ten automated tests covering the full lifecycle, semantic recall, permissions, replay, MCP, and API flow.
 
-## What works now
+## Demo-safe boundary
 
-- `POST /mcp`: JSON-RPC MCP surface with `recall_experience` and `store_experience`.
-- `POST /api/gateway/events`: capture boundary for a proxy or adapter to log a completed tool call.
-- `POST /api/capture`: creates a consent-scoped, non-serveable candidate.
-- `POST /api/experiences/{id}/verify`: pluggable `outcome_signal`, `tests_ci`, `llm_judge`, and tolerance-based `rerun_and_compare` verification.
-- `POST /api/recall`: filters to verified and visible experience, returns provenance/verification receipts, and records attributed reuse.
-- User, team-discovery, and admin-health dashboards in the zero-build frontend.
-- A first simulation workflow based on the Postia/iDynoMiCS design asset; the on-screen rerun uses a clearly labelled local metrics fixture, not a real simulator execution.
+- With `OPENAI_API_KEY`, language distillation and answer generation use the OpenAI Responses API.
+- Without a key, the app uses deterministic English copy. Retrieval, storage, verification, replay, and usage tracking remain real.
+- The bundled replay worker is a real executable cost/quality workflow for the hackathon story. It is not an iDynoMiCS binary or a production GPU scheduler.
+- No Docker sandbox and no arbitrary browser-supplied command execution are used.
 
-## Run locally
+## Fastest start: two terminal commands
 
-Requirements: Python 3.11+.
+Requirements: Python 3.11 or newer.
 
-```bash
-cd backend
+```powershell
+cd C:\Users\BitAltas\Documents\GitHub\Org_system\backend
 python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Then open `http://127.0.0.1:8000` for the dashboard. Alternatively, serve the standalone [frontend/index.html](frontend/index.html):
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). API documentation is at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-```bash
-cd frontend
-python -m http.server 3000
+You can also double-click `START_DEMO.cmd`. Double-click `STOP_DEMO.cmd` when finished. `org.system-demo.html` opens the running demo directly.
+
+## Offline/mock mode
+
+Mock mode is automatic when no API key is present. To make it explicit:
+
+```powershell
+$env:ORG_SYSTEM_LLM_MODE="mock"
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-API documentation is available at `http://127.0.0.1:8000/docs`.
+This is the recommended on-stage configuration because the full product loop still runs without network risk.
 
-The first launch creates `backend/data/org_system.sqlite3` and seeds three explicitly labelled local fixtures. Use **Reset demo** to restore them. That database is intentionally ignored by Git.
+## Live AI mode
 
-## Verify the core loop
+Set the key only in the terminal session; never paste it into the HTML or commit it.
 
-```bash
-cd backend
+```powershell
+$env:OPENAI_API_KEY="YOUR_KEY"
+$env:ORG_SYSTEM_LLM_MODE="openai"
+$env:OPENAI_MODEL="gpt-5.6-luna"
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+The header badge shows `AI · openai` when live mode is active. If the provider times out, the same request automatically falls back to deterministic copy without breaking the demo.
+
+## The 2-minute live path
+
+1. Select **Sarah** and type:
+
+   `We embedded 8 TB of Kubernetes logs for semantic incident search. The completed run consumed 148 GPU-hours but improved accuracy by only 3%. The better path is to sample 5%, cluster recurring log fingerprints, and set a go/no-go quality gate before scaling.`
+
+2. Watch org.system type its answer and store a verified negative result.
+3. Switch to **Tom** and type:
+
+   `I want to embed 30 days of Kubernetes logs for semantic incident search. Can I launch the full 8 TB GPU job?`
+
+4. Watch the verified receipt appear and the avoided impact change to **148 GPUh**.
+5. Click **Replay evidence in isolated process**. The backend launches the bundled worker, extracts all metrics, and checks them against the stored receipt.
+
+The full narration is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+
+## Connect org.system to Codex through MCP
+
+The website does not require MCP. MCP is the proof that the same organizational memory can be used inside an AI coding client.
+
+The repository already includes `.codex/config.toml` and `AGENTS.md`. Open this folder as a trusted Codex project, then restart Codex. Codex will be instructed to run the duplicate-work pre-flight before costly work and to offer a consented capture after objectively completed work.
+
+From a terminal where `codex` and Python are available:
+
+```powershell
+codex mcp add org-system -- python C:\Users\BitAltas\Documents\GitHub\Org_system\backend\mcp_stdio.py
+codex mcp list
+```
+
+org.system exposes three tools:
+
+- `recall_experience` — retrieve verified visible experience with receipts.
+- `avoid_duplicate_work` — run a pre-flight check against a proposed task.
+- `store_experience` — capture an unverified candidate for later verification.
+- `record_completed_work` — capture and verify a consented, evidence-backed lesson at task completion.
+
+If `python` resolves incorrectly on Windows, replace it in the command with the full path returned by `Get-Command python` or your installed Python executable.
+
+## Verify everything
+
+```powershell
+cd C:\Users\BitAltas\Documents\GitHub\Org_system\backend
 python -m unittest discover -s tests -v
 ```
 
-The test proves that a candidate cannot be recalled until it passes verification, then confirms that a teammate can retrieve it with a receipt. For the scripted demo, follow [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+With the server running:
 
-## MCP test request
-
-```bash
-curl -X POST http://127.0.0.1:8000/mcp \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```powershell
+powershell -ExecutionPolicy Bypass -File ..\scripts\smoke-test.ps1
 ```
 
-## Hackathon evidence: Codex and timeframe
+## API map
 
-The official rules require a project made with **Codex using GPT-5.6**, a public <3-minute YouTube demo that explains how both were used, a working repository, and the `/feedback` Session ID from the project thread where most core functionality was built. They also require new projects to be created during the Submission Period, or existing projects to be meaningfully extended during it with clear evidence distinguishing old and new work.
-
-This repository's baseline `Hive.skill` prototype was replaced by the Org_system implementation in this working tree. Before submitting, follow [docs/HACKATHON_EVIDENCE.md](docs/HACKATHON_EVIDENCE.md): make a dated commit of this implementation during the July 13–21, 2026 PT Submission Period; obtain the actual `/feedback` Session ID from the GPT-5.6 Codex thread; and replace its placeholders with honest, timestamped evidence. Do not invent a session ID or claim a model version that the session metadata does not confirm.
-
-The required Codex collaboration narrative and the project-specific engineering decisions are in [docs/SUBMISSION_SUMMARY.md](docs/SUBMISSION_SUMMARY.md). The recommended category is **Work & Productivity**.
+- `POST /api/distill` — transcript to candidate experience.
+- `POST /api/assist` — conversational capture or pre-flight recall.
+- `POST /api/capture` — explicit structured capture.
+- `POST /api/experiences/{id}/verify` — pluggable evidence verification.
+- `POST /api/experiences/{id}/replay` — safe independent workflow replay.
+- `POST /api/experiences/{id}/verify/ai` — rubric-based AI judge with provider receipt.
+- `POST /api/recall` — verified and permitted recall with attribution.
+- `POST /api/gateway/events` — automatic connector capture boundary.
+- `POST /mcp` — HTTP JSON-RPC integration surface.
+- `GET /api/dashboard/user/{title}`, `/team`, `/admin` — contribution, discovery, and health views.
+- `GET /api/dashboard/impact` — measured reuse and avoided-resource accounting.
 
 ## Project map
 
-- [backend/app/main.py](backend/app/main.py) — FastAPI layer and API routes.
-- [backend/app/experience_store.py](backend/app/experience_store.py) — `MemoryStore` implementation, access filtering, activation-lite recall, and dashboard queries.
-- [backend/app/verifiers.py](backend/app/verifiers.py) — verification lifecycle rules.
-- [backend/app/mcp_server.py](backend/app/mcp_server.py) — MCP tool surface.
-- [frontend/index.html](frontend/index.html) — interactive capture → verify → serve demo and dashboards.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — implementation architecture.
-- [docs/COMMANDS.md](docs/COMMANDS.md) — API examples.
+- `frontend/index.html` — final English hackathon interface.
+- `backend/app/main.py` — FastAPI routes and conversational orchestration.
+- `backend/app/distiller.py` / `llm_client.py` — live AI plus deterministic fallback.
+- `backend/app/experience_store.py` — schema-validated memory, permissions, receipts, and recall.
+- `backend/app/verifiers.py` / `runners.py` — fail-closed verification and real process replay.
+- `backend/mcp_stdio.py` — Codex-compatible stdio MCP entrypoint.
+- `backend/tests/` — eight automated lifecycle and integration tests.
+- `docs/BUILD_COMPLETION_REPORT.md` — design-outline completion record and honest boundaries.
+
+The product name is `org.system`; the repository folder remains `Org_system` for compatibility with the existing workspace.

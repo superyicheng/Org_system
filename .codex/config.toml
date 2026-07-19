@@ -1,0 +1,14 @@
+# Project-scoped Codex integration. Codex loads this only for a trusted project.
+[mcp_servers.org_system]
+command = "python"
+args = ['C:\Users\BitAltas\Documents\GitHub\Org_system\backend\mcp_stdio.py']
+cwd = 'C:\Users\BitAltas\Documents\GitHub\Org_system\backend'
+enabled = true
+required = false
+startup_timeout_sec = 10
+tool_timeout_sec = 30
+enabled_tools = ["avoid_duplicate_work", "recall_experience", "record_completed_work"]
+default_tools_approval_mode = "auto"
+
+[mcp_servers.org_system.tools.record_completed_work]
+approval_mode = "writes"

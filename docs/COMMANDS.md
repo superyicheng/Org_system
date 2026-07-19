@@ -1,47 +1,80 @@
-# Org_system commands
+# org.system command reference
 
-Start the API from `backend/`:
+## Start in offline-safe mode
 
-```bash
+```powershell
+cd C:\Users\BitAltas\Documents\GitHub\Org_system\backend
 python -m pip install -r requirements.txt
+$env:ORG_SYSTEM_LLM_MODE="mock"
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Check the service:
+Open `http://127.0.0.1:8000`.
 
-```bash
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/api/dashboard/admin
+## Start with live OpenAI generation
+
+```powershell
+cd C:\Users\BitAltas\Documents\GitHub\Org_system\backend
+$env:OPENAI_API_KEY="YOUR_KEY"
+$env:ORG_SYSTEM_LLM_MODE="openai"
+$env:OPENAI_MODEL="gpt-5.6-luna"
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Capture an experience candidate:
+## Health and test suite
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/capture \
-  -H 'Content-Type: application/json' \
-  -d '{"actor":"Sarah","task":"Run a validated simulation","trace_summary":"The run completed and emitted metrics.","tool_name":"simulation adapter","tags":["simulation"],"visibility":"team","consent":true}'
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+python -m unittest discover -s tests -v
+powershell -ExecutionPolicy Bypass -File ..\scripts\smoke-test.ps1
 ```
 
-Verify the returned experience ID with an objective outcome:
+## Tom pre-flight API
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/experiences/EXP_ID/verify \
-  -H 'Content-Type: application/json' \
-  -d '{"method":"outcome_signal","outcome_succeeded":true}'
+```powershell
+$body = @{
+  role = "newcomer"
+  title = "Tom"
+  message = "I want to embed 30 days of Kubernetes logs for semantic incident search. Can I launch the full 8 TB GPU job?"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/assist -ContentType application/json -Body $body
 ```
 
-Recall for a teammate. This call creates an attributed usage event by default:
+## Independent evidence replay
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/recall \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Postia spatial growth iDynoMiCS","consumer":"Tom","limit":3}'
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/experiences/exp-verified-log-embedding/replay
 ```
 
-Exercise the MCP tools:
+## MCP HTTP check
 
-```bash
-curl -X POST http://127.0.0.1:8000/mcp \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"recall_experience","arguments":{"query":"Postia spatial growth","consumer":"Tom"}}}'
+```powershell
+$body = @{
+  jsonrpc = "2.0"
+  id = 1
+  method = "tools/call"
+  params = @{
+    name = "avoid_duplicate_work"
+    arguments = @{
+      proposal = "Embed Kubernetes logs for semantic search"
+      consumer = "Tom"
+    }
+  }
+} | ConvertTo-Json -Depth 6
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/mcp -ContentType application/json -Body $body
 ```
+
+## Codex stdio MCP registration
+
+```powershell
+codex mcp add org-system -- python C:\Users\BitAltas\Documents\GitHub\Org_system\backend\mcp_stdio.py
+codex mcp list
+```
+
+## Reset and stop
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/demo/reset
+```
+
+In a foreground terminal, press `Ctrl+C`. If started using `START_DEMO.cmd`, double-click `STOP_DEMO.cmd`.

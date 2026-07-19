@@ -1,1 +1,1 @@
-"""Org_system backend package."""
+"""org.system backend package."""

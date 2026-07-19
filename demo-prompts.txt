@@ -1,10 +1,14 @@
-# Org_system demo prompts
+1 — SARAH · COMPLETED NEGATIVE RESULT → CAPTURE
+We embedded 8 TB of Kubernetes logs for semantic incident search. The completed run consumed 148 GPU-hours but improved accuracy by only 3%. The better path is to sample 5%, cluster recurring log fingerprints, and set a go/no-go quality gate before scaling.
 
-# Use with recall_experience as consumer Tom
-How do I make the Postia placenta iDynoMiCS 2 validation config grow spatially?
+2 — TOM · MATCHES SARAH → RECALL
+I want to vectorize a month of cluster diagnostics using our accelerator capacity. Should I run it at full scale?
 
-# Capture this as a candidate, then verify it
-The simulation completed after enabling FungalGrowthManager.updateBody and AgentRelaxation. Radial growth is now nonzero.
+3 — TOM · NOVEL IDEA → NO PRIOR DATA, SAFE EXPERIMENT APPROVED
+I want to test content-addressed dependency caching in our CI pipeline. Has the team tried this before?
 
-# A negative experiment remains visible to admins but must not be served as verified
-We plan to embed 30 days of Kubernetes logs. Check whether an existing verified experience applies.
+4 — TOM · FOLLOW-UP COMPLETED SUCCESS → CAPTURE
+We completed the CI cache experiment. Content-addressed dependency layer caching improved build time from 18 minutes to 7 minutes, and all tests passed. Restore the cache before compilation.
+
+5 — MEI · MATCHES TOM → RECALL
+I want to speed up CI builds by caching dependency layers. Should I implement it from scratch?

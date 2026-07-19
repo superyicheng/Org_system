@@ -1,9 +1,31 @@
 # Final checklist
 
-- [ ] Run the lifecycle tests from `backend/`.
-- [ ] Start the API and record the <3 minute public YouTube demo using `docs/DEMO_SCRIPT.md`.
-- [ ] Confirm the video audio explains what Org_system does and how Codex + GPT-5.6 were used.
-- [ ] Make a dated Git commit within the Submission Period and preserve `git log --show-signature --date=iso-strict` output.
-- [ ] Complete every item in `docs/HACKATHON_EVIDENCE.md`, including the real `/feedback` Session ID.
-- [ ] Publish the repository with this README and license, or grant `testing@devpost.com` and `build-week-event@openai.com` access.
-- [ ] Add the public video URL, repository URL, category, and exact session ID to Devpost before July 21, 2026 at 5:00 PM PT.
+## Technical
+
+- [x] All interface copy is English.
+- [x] The original Tom, Sarah, and Mei accounts are preserved.
+- [x] Both perspectives type natural-language input; no preset scenario buttons.
+- [x] Mock mode completes the full offline demo.
+- [x] Live OpenAI mode is available through environment variables.
+- [x] Verified-only recall, consent, visibility, and attribution are tested.
+- [x] Negative results can become verified reusable assets.
+- [x] Metric verification fails closed.
+- [x] Evidence replay runs in an independent process.
+- [x] Codex-compatible stdio MCP entrypoint is included.
+- [x] Ten automated tests pass, including semantic paraphrase recall and dynamic evidence replay.
+
+## Before presenting
+
+- [ ] Run `python -m unittest discover -s tests -v` from `backend`.
+- [ ] Start the app and run `scripts/smoke-test.ps1`.
+- [ ] Click **Reset demo** before recording.
+- [ ] Keep `demo-prompts.txt` open for copy/paste backup.
+- [ ] Use mock mode unless live model output is specifically required.
+- [ ] Record the <3 minute public demo using `docs/DEMO_SCRIPT.md`.
+
+## Submission evidence
+
+- [ ] Make a dated Git commit within the Submission Period.
+- [ ] Add the real `/feedback` Session ID; do not invent it.
+- [ ] Confirm the exact Codex/model claim from session metadata.
+- [ ] Add the public video URL and repository URL to the submission.

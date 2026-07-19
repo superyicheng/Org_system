@@ -1,6 +1,7 @@
-"""API contracts for Org_system's experience lifecycle."""
+"""API contracts for org.system's experience lifecycle."""
 
 from typing import Any, Literal
+import uuid
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,9 @@ class VerifyRequest(BaseModel):
     outcome_succeeded: bool = True
     observed_metrics: dict[str, Any] = Field(default_factory=dict)
     environment_matches: bool = True
+    evidence_confirmed: bool | None = None
+    test_exit_code: int | None = None
+    judge_score: float | None = Field(default=None, ge=0, le=1)
 
 
 class RecallRequest(BaseModel):
@@ -37,6 +41,8 @@ class RecallRequest(BaseModel):
 
 
 class GatewayEvent(BaseModel):
+    session_id: str = Field(default_factory=lambda: f"session-{uuid.uuid4().hex[:10]}", min_length=3, max_length=120)
+    event_type: Literal["tool_result", "task_completed"] = "task_completed"
     actor: str = Field(min_length=1, max_length=120)
     tool_name: str = Field(min_length=1, max_length=120)
     tool_call: str = Field(min_length=1, max_length=4000)
@@ -52,3 +58,18 @@ class MCPRequest(BaseModel):
     id: str | int | None = None
     method: str
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+class DistillRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    transcript: str = Field(min_length=20, max_length=20000)
+    tool_name: str = Field(default="Codex work session", min_length=1, max_length=120)
+    visibility: VisibilityScope = "team"
+    consent: bool = True
+
+
+class AssistRequest(BaseModel):
+    role: Literal["auto", "veteran", "newcomer"] = "auto"
+    message: str = Field(min_length=10, max_length=12000)
+    title: str = Field(default="Team Member", min_length=1, max_length=120)
+    record_usage: bool = True

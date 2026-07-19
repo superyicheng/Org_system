@@ -61,27 +61,37 @@ def demo_experiences() -> list[dict[str, Any]]:
             "captured_at": "2026-07-16T08:40:00+00:00",
         },
         {
-            "id": "exp-stale-log-embedding",
-            "actor": "Tom",
-            "task": "Embed thirty days of production Kubernetes logs for semantic search.",
-            "trace_summary": "A full 8 TB run cost 148 GPU hours and produced only a three percent accuracy gain.",
-            "source": {"tool_name": "batch runner", "captured_by": "MCP gateway"},
+            "id": "exp-verified-log-embedding",
+            "actor": "Sarah",
+            "task": "Embed thirty days of production Kubernetes logs for semantic incident search.",
+            "trace_summary": "A completed full 8 TB experiment consumed 148 GPU-hours and improved incident retrieval accuracy by only 3 percent.",
+            "source": {"tool_name": "Codex work session", "captured_by": "MCP gateway + automatic distiller"},
             "content": {
                 "claim": "Sample and cluster log fingerprints before a full embedding job.",
                 "rationale": "A full embedding run was expensive with negligible improvement.",
             },
             "tags": ["kubernetes", "logs", "embeddings", "negative-result"],
             "outcome": "failed",
-            "status": "stale",
+            "status": "verified",
             "visibility": {"scope": "team", "consent": True},
             "verification": {
                 "method": "outcome_signal",
-                "last_verdict": "STALE",
-                "last_verified_at": "2026-05-01T00:00:00+00:00",
+                "last_verdict": "VERIFIED",
+                "last_verified_at": "2026-07-18T00:00:00+00:00",
                 "reverify_after_days": 30,
-                "details": "Kept for audit, intentionally excluded from verified recall.",
+                "details": "REPRODUCED: bundled workflow replay matched dataset size, GPU-hours, and accuracy gain.",
             },
-            "domain_extension": {"domain": "platform-engineering"},
-            "captured_at": "2026-04-10T12:00:00+00:00",
+            "domain_extension": {
+                "domain": "platform-engineering/ai-operations",
+                "expected_metrics": {
+                    "dataset_tb": {"value": 8.0, "tolerance": "exact"},
+                    "gpu_hours": {"value": 148.0, "tolerance": "exact"},
+                    "accuracy_gain_pct": {"value": 3.0, "tolerance": "exact"}
+                },
+                "resource_evidence": {"dataset_tb": 8.0, "gpu_hours": 148.0, "accuracy_gain_pct": 3.0},
+                "runner_payload": {"workflow": "log-embedding-experiment", "dataset_tb": 8.0, "sampling_ratio": 1.0},
+                "reuse_recipe": "Start with a 5% stratified sample, cluster recurring log fingerprints, and run a go/no-go quality gate before scaling."
+            },
+            "captured_at": "2026-07-18T12:00:00+00:00",
         },
     ]
