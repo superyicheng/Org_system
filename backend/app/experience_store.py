@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import uuid
 from collections import Counter, defaultdict
 from contextlib import contextmanager
@@ -16,6 +15,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Connection, Engine
+
+from app.auth import token_digest
+from app.config import Settings
 from app.seed_data import demo_experiences
 
 
@@ -37,6 +41,12 @@ def actor_name(item: dict[str, Any]) -> str:
     return actor.get("display_name") or actor["id"] if isinstance(actor, dict) else str(actor)
 
 
+def actor_key(item: dict[str, Any]) -> str:
+    """Stable actor identifier, falling back gracefully for legacy demo assets."""
+    actor = item["actor"]
+    return (actor.get("id") or actor.get("display_name", "")).lower() if isinstance(actor, dict) else str(actor).lower()
+
+
 def task_goal(item: dict[str, Any]) -> str:
     task = item["task"]
     return task["goal"] if isinstance(task, dict) else str(task)
@@ -48,6 +58,7 @@ def _normalize_asset(item: dict[str, Any]) -> dict[str, Any]:
         return item
     raw_actor = item["actor"]
     display_name = raw_actor.get("display_name", raw_actor["id"]) if isinstance(raw_actor, dict) else str(raw_actor)
+    actor_id = str(raw_actor.get("id", display_name.lower().replace(" ", "-"))).lower() if isinstance(raw_actor, dict) else display_name.lower().replace(" ", "-")
     raw_task = item["task"]
     goal = raw_task.get("goal", "") if isinstance(raw_task, dict) else str(raw_task)
     domain_extension = item.get("domain_extension", {})
@@ -86,7 +97,7 @@ def _normalize_asset(item: dict[str, Any]) -> dict[str, Any]:
         "id": item_id,
         "schema_version": "0.1.0",
         "source": {"tool": tool, "connector": raw_source.get("connector", "org-system-capture")},
-        "actor": {"id": display_name.lower().replace(" ", "-"), "display_name": display_name},
+        "actor": {"id": actor_id, "display_name": display_name},
         "captured_at": item.get("captured_at", now()),
         "captured_by": item.get("captured_by", raw_source.get("captured_by", "Org_system capture")),
         "task": {"goal": goal, "domain": raw_task.get("domain", domain_extension.get("domain", "general")) if isinstance(raw_task, dict) else domain_extension.get("domain", "general")},
@@ -105,49 +116,30 @@ def _normalize_asset(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class ExperienceStore:
-    def __init__(self, database_path: Path) -> None:
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        self.database_path = database_path
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        if settings.database_url.startswith("sqlite:///"):
+            Path(settings.database_url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+        connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+        self.engine: Engine = create_engine(settings.database_url, pool_pre_ping=True, connect_args=connect_args)
         self._initialize()
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.database_path)
-        connection.row_factory = sqlite3.Row
-        try:
+    def _connection(self) -> Iterator[Connection]:
+        with self.engine.begin() as connection:
             yield connection
-            connection.commit()
-        finally:
-            connection.close()
 
     def _initialize(self) -> None:
+        statements = [
+            """CREATE TABLE IF NOT EXISTS experiences (id TEXT PRIMARY KEY, payload TEXT NOT NULL, captured_at TEXT NOT NULL, created_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS usage_events (id TEXT PRIMARY KEY, experience_id TEXT NOT NULL, consumer TEXT NOT NULL, query TEXT NOT NULL, served_at TEXT NOT NULL, FOREIGN KEY(experience_id) REFERENCES experiences(id))""",
+            """CREATE TABLE IF NOT EXISTS capture_events (id TEXT PRIMARY KEY, experience_id TEXT NOT NULL, event_type TEXT NOT NULL, detail TEXT NOT NULL, happened_at TEXT NOT NULL, FOREIGN KEY(experience_id) REFERENCES experiences(id))""",
+            """CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, display_name TEXT NOT NULL, role TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS mcp_tokens (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, owner_email TEXT NOT NULL, label TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT, FOREIGN KEY(owner_email) REFERENCES users(email))""",
+        ]
         with self._connection() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS experiences (
-                    id TEXT PRIMARY KEY,
-                    payload TEXT NOT NULL,
-                    captured_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS usage_events (
-                    id TEXT PRIMARY KEY,
-                    experience_id TEXT NOT NULL,
-                    consumer TEXT NOT NULL,
-                    query TEXT NOT NULL,
-                    served_at TEXT NOT NULL,
-                    FOREIGN KEY(experience_id) REFERENCES experiences(id)
-                );
-                CREATE TABLE IF NOT EXISTS capture_events (
-                    id TEXT PRIMARY KEY,
-                    experience_id TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    detail TEXT NOT NULL,
-                    happened_at TEXT NOT NULL,
-                    FOREIGN KEY(experience_id) REFERENCES experiences(id)
-                );
-                """
-            )
+            for statement in statements:
+                conn.execute(text(statement))
 
     def seed(self) -> None:
         if self.list_experiences():
@@ -159,26 +151,31 @@ class ExperienceStore:
         experience = _normalize_asset(dict(experience))
         serialized = json.dumps(experience, sort_keys=True)
         with self._connection() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO experiences (id, payload, captured_at, created_at) VALUES (?, ?, ?, ?)",
-                (experience["id"], serialized, experience["captured_at"], now()),
-            )
-            conn.execute(
-                "INSERT INTO capture_events (id, experience_id, event_type, detail, happened_at) VALUES (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, experience["id"], event_type, detail, now()),
-            )
+            values = {
+                "id": experience["id"], "payload": serialized, "captured_at": experience["captured_at"], "created_at": now(),
+            }
+            updated = conn.execute(text(
+                "UPDATE experiences SET payload = :payload, captured_at = :captured_at, created_at = :created_at WHERE id = :id"
+            ), values)
+            if not updated.rowcount:
+                conn.execute(text("INSERT INTO experiences (id, payload, captured_at, created_at) VALUES (:id, :payload, :captured_at, :created_at)"), values)
+            conn.execute(text("INSERT INTO capture_events (id, experience_id, event_type, detail, happened_at) VALUES (:id, :experience_id, :event_type, :detail, :happened_at)"), {
+                "id": uuid.uuid4().hex, "experience_id": experience["id"], "event_type": event_type, "detail": detail, "happened_at": now(),
+            })
         return experience
 
     def get(self, experience_id: str) -> dict[str, Any] | None:
         with self._connection() as conn:
-            row = conn.execute("SELECT payload FROM experiences WHERE id = ?", (experience_id,)).fetchone()
+            row = conn.execute(text("SELECT payload FROM experiences WHERE id = :id"), {"id": experience_id}).mappings().first()
         return json.loads(row["payload"]) if row else None
 
-    def list_experiences(self, *, include_nonserveable: bool = True) -> list[dict[str, Any]]:
+    def list_experiences(self, *, include_nonserveable: bool = True, consumer: str | None = None) -> list[dict[str, Any]]:
         with self._connection() as conn:
-            rows = conn.execute("SELECT payload FROM experiences ORDER BY captured_at DESC").fetchall()
+            rows = conn.execute(text("SELECT payload FROM experiences ORDER BY captured_at DESC")).mappings().all()
         items = [json.loads(row["payload"]) for row in rows]
-        return items if include_nonserveable else [item for item in items if item["status"] == "verified"]
+        if not include_nonserveable:
+            items = [item for item in items if item["status"] == "verified"]
+        return items if consumer is None else [item for item in items if self._permitted(item, consumer)]
 
     def create_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
         candidate = {
@@ -215,7 +212,7 @@ class ExperienceStore:
 
     def _permitted(self, item: dict[str, Any], consumer: str) -> bool:
         visibility = item["visibility"]
-        return bool(visibility["consent"].get("opt_in")) and (visibility["scope"] in {"team", "org"} or actor_name(item).lower() == consumer.lower())
+        return bool(visibility["consent"].get("opt_in")) and (visibility["scope"] in {"team", "org"} or actor_key(item) == consumer.lower())
 
     def recall(self, *, query: str, consumer: str, limit: int, record_usage: bool) -> list[dict[str, Any]]:
         query_terms = tokens(query)
@@ -261,28 +258,27 @@ class ExperienceStore:
 
     def record_usage(self, experience_id: str, consumer: str, query: str) -> None:
         with self._connection() as conn:
-            row = conn.execute("SELECT payload FROM experiences WHERE id = ?", (experience_id,)).fetchone()
+            row = conn.execute(text("SELECT payload FROM experiences WHERE id = :id"), {"id": experience_id}).mappings().first()
             if row:
                 item = json.loads(row["payload"])
                 item["usage"]["times_served"] += 1
                 item["usage"]["last_served_at"] = now()
                 if consumer not in item["usage"]["served_to"]:
                     item["usage"]["served_to"].append(consumer)
-                conn.execute("UPDATE experiences SET payload = ? WHERE id = ?", (json.dumps(item, sort_keys=True), experience_id))
-            conn.execute(
-                "INSERT INTO usage_events (id, experience_id, consumer, query, served_at) VALUES (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, experience_id, consumer, query, now()),
-            )
+                conn.execute(text("UPDATE experiences SET payload = :payload WHERE id = :id"), {"payload": json.dumps(item, sort_keys=True), "id": experience_id})
+            conn.execute(text("INSERT INTO usage_events (id, experience_id, consumer, query, served_at) VALUES (:id, :experience_id, :consumer, :query, :served_at)"), {
+                "id": uuid.uuid4().hex, "experience_id": experience_id, "consumer": consumer, "query": query, "served_at": now(),
+            })
 
     def user_dashboard(self, actor: str) -> dict[str, Any]:
         items = self.list_experiences()
         mine = [item for item in items if actor_name(item).lower() == actor.lower()]
         with self._connection() as conn:
-            usage_rows = conn.execute(
+            usage_rows = conn.execute(text(
                 """SELECT e.payload, u.consumer, u.served_at FROM usage_events u
                    JOIN experiences e ON e.id = u.experience_id
                    ORDER BY u.served_at DESC"""
-            ).fetchall()
+            )).mappings().all()
         contributed_uses = sum(1 for row in usage_rows if actor_name(json.loads(row["payload"])).lower() == actor.lower())
         sources: Counter[str] = Counter()
         for row in usage_rows:
@@ -299,8 +295,8 @@ class ExperienceStore:
             "experiences": mine,
         }
 
-    def team_dashboard(self) -> dict[str, Any]:
-        items = self.list_experiences()
+    def team_dashboard(self, *, consumer: str | None = None) -> dict[str, Any]:
+        items = self.list_experiences(consumer=consumer)
         knowledge: dict[str, Counter[str]] = defaultdict(Counter)
         for item in items:
             for tag in item.get("tags", []):
@@ -331,7 +327,7 @@ class ExperienceStore:
                 except ValueError:
                     pass
         return {
-            "engine": "SYNAPSE-compatible SQLite graph (episodic nodes + tag activation)",
+            "engine": "SYNAPSE-compatible graph (shared PostgreSQL or local SQLite)",
             "total_experiences": len(items),
             "status_counts": dict(status_counts),
             "visibility_counts": dict(visibility_counts),
@@ -342,14 +338,66 @@ class ExperienceStore:
 
     def capture_events(self, *, limit: int) -> list[dict[str, str]]:
         with self._connection() as conn:
-            rows = conn.execute(
-                "SELECT experience_id, event_type, detail, happened_at FROM capture_events ORDER BY happened_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = conn.execute(text("SELECT experience_id, event_type, detail, happened_at FROM capture_events ORDER BY happened_at DESC LIMIT :limit"), {"limit": limit}).mappings().all()
         return [dict(row) for row in rows]
 
     def reset_demo(self) -> None:
         with self._connection() as conn:
-            conn.execute("DELETE FROM usage_events")
-            conn.execute("DELETE FROM capture_events")
-            conn.execute("DELETE FROM experiences")
+            conn.execute(text("DELETE FROM usage_events"))
+            conn.execute(text("DELETE FROM capture_events"))
+            conn.execute(text("DELETE FROM experiences"))
         self.seed()
+
+    def upsert_user(self, *, email: str, display_name: str, role: str) -> None:
+        with self._connection() as conn:
+            values = {
+                "email": email, "display_name": display_name, "role": role, "updated_at": now(),
+            }
+            updated = conn.execute(text(
+                "UPDATE users SET display_name = :display_name, role = :role, updated_at = :updated_at WHERE email = :email"
+            ), values)
+            if not updated.rowcount:
+                conn.execute(text("INSERT INTO users (email, display_name, role, updated_at) VALUES (:email, :display_name, :role, :updated_at)"), values)
+
+    def create_mcp_token(self, *, owner_email: str, label: str, raw_token: str) -> str:
+        token_id = f"mcp-{uuid.uuid4().hex}"
+        with self._connection() as conn:
+            conn.execute(text("INSERT INTO mcp_tokens (id, token_hash, owner_email, label, created_at, revoked_at) VALUES (:id, :token_hash, :owner_email, :label, :created_at, NULL)"), {
+                "id": token_id, "token_hash": token_digest(raw_token), "owner_email": owner_email, "label": label, "created_at": now(),
+            })
+        return token_id
+
+    def list_mcp_tokens(self, *, owner_email: str | None = None) -> list[dict[str, str | None]]:
+        query = "SELECT id, owner_email, label, created_at, revoked_at FROM mcp_tokens"
+        params: dict[str, str] = {}
+        if owner_email:
+            query += " WHERE owner_email = :owner_email"
+            params["owner_email"] = owner_email
+        query += " ORDER BY created_at DESC"
+        with self._connection() as conn:
+            rows = conn.execute(text(query), params).mappings().all()
+        return [dict(row) for row in rows]
+
+    def revoke_mcp_token(self, *, token_id: str, owner_email: str | None = None) -> bool:
+        query = "UPDATE mcp_tokens SET revoked_at = :revoked_at WHERE id = :id AND revoked_at IS NULL"
+        params: dict[str, str] = {"id": token_id, "revoked_at": now()}
+        if owner_email:
+            query += " AND owner_email = :owner_email"
+            params["owner_email"] = owner_email
+        with self._connection() as conn:
+            result = conn.execute(text(query), params)
+        return bool(result.rowcount)
+
+    def identity_for_mcp_token(self, digest: str) -> dict[str, str] | None:
+        with self._connection() as conn:
+            row = conn.execute(text(
+                """SELECT u.email, u.display_name, u.role FROM mcp_tokens t
+                   JOIN users u ON u.email = t.owner_email
+                   WHERE t.token_hash = :digest AND t.revoked_at IS NULL"""
+            ), {"digest": digest}).mappings().first()
+        return dict(row) if row else None
+
+    def identity_for_email(self, email: str) -> dict[str, str] | None:
+        with self._connection() as conn:
+            row = conn.execute(text("SELECT email, display_name, role FROM users WHERE email = :email"), {"email": email}).mappings().first()
+        return dict(row) if row else None

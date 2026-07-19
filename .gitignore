@@ -3,3 +3,4 @@ backend/.org-system-backend.pid
 backend/app/__pycache__/
 backend/tests/__pycache__/
 *.pyc
+.env

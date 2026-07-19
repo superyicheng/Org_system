@@ -1,26 +1,44 @@
 # Org_system
 
-Org_system is an organizational experience layer for AI tools. It captures a completed tool trace as an **experience candidate**, verifies the claim, stores it with visibility and provenance, and lets a teammate's AI recall only verified, visible experiences with an attribution receipt.
-
-This repository implements the vertical slice described in [the system design report](docs/SYSTEM_DESIGN_AND_BUILD_REPORT.md):
+Org_system is a shared organizational experience layer for AI tools. It captures completed work as a candidate, verifies the claim, stores consent and provenance, and lets a teammate's AI retrieve only verified experience with an attribution receipt.
 
 ```text
-MCP / tool adapter → automatic capture → verifier → MemoryStore → receipt-backed recall → dashboards
+Codex / tool adapter → capture → verification gate → shared memory → receipt-backed recall
 ```
 
-The local implementation uses SQLite as a swappable, SYNAPSE-compatible memory backend: each experience is an episodic record, tags act as semantic nodes, and retrieval uses lexical matching plus a small graph-activation bonus. It is intentionally behind `ExperienceStore`, so a native SYNAPSE or graph/vector backend can replace it later.
+It is no longer just a localhost dashboard. The repository now includes a deployable shared-service path:
 
-## What works now
+- HTTPS FastAPI web app and standard Streamable HTTP MCP endpoint at `/mcp/`.
+- PostgreSQL for the shared cloud system; SQLite only for the zero-account local demo.
+- Google sign-in for browser access, a Workspace-domain allowlist option, and admin emails for the boss role.
+- A separate, hash-stored, revocable bearer token for every employee's Codex laptop.
+- A hosted UI that creates the exact Codex configuration after an employee signs in.
 
-- `POST /mcp`: JSON-RPC MCP surface with `recall_experience` and `store_experience`.
-- `POST /api/gateway/events`: capture boundary for a proxy or adapter to log a completed tool call.
-- `POST /api/capture`: creates a consent-scoped, non-serveable candidate.
-- `POST /api/experiences/{id}/verify`: pluggable `outcome_signal`, `tests_ci`, `llm_judge`, and tolerance-based `rerun_and_compare` verification.
-- `POST /api/recall`: filters to verified and visible experience, returns provenance/verification receipts, and records attributed reuse.
-- User, team-discovery, and admin-health dashboards in the zero-build frontend.
-- A first simulation workflow based on the Postia/iDynoMiCS design asset; the on-screen rerun uses a clearly labelled local metrics fixture, not a real simulator execution.
+## Deploy for the team
 
-## Run locally
+Start with [Cloud deployment](docs/CLOUD_DEPLOYMENT.md). It covers Google configuration, the included Docker/Render deployment files, the environment values to set, and the shared-service verification checklist. Then give every employee [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md).
+
+The employee's Codex configuration uses the official remote MCP pattern:
+
+```toml
+[mcp_servers.org_system]
+url = "https://your-service.example/mcp/"
+bearer_token_env_var = "ORG_SYSTEM_MCP_TOKEN"
+```
+
+The full configuration and token lifecycle are documented in the employee guide.
+
+## What works
+
+- `POST /mcp/`: bearer-authenticated Streamable HTTP MCP with `recall_experience` and `store_experience`.
+- `POST /api/gateway/events`: consent-scoped capture boundary for a tool proxy or adapter.
+- `POST /api/capture`: creates a non-serveable candidate.
+- `POST /api/experiences/{id}/verify`: outcome, test, LLM-judge, and rerun comparison verification modes.
+- `POST /api/recall`: returns only verified, visible experiences and records attributed reuse.
+- Google browser sessions, per-laptop MCP tokens, revocation, and employee/admin authorization boundaries.
+- User, team-discovery, and admin-health dashboards.
+
+## Run the local demo
 
 Requirements: Python 3.11+.
 
@@ -30,48 +48,27 @@ python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Then open `http://127.0.0.1:8000` for the dashboard. Alternatively, serve the standalone [frontend/index.html](frontend/index.html):
+Open `http://127.0.0.1:8000`. Local mode is explicitly a demo: it uses a local SQLite file, automatically signs in as Demo User, and accepts the demo MCP token shown by the UI. It is not a multi-employee deployment.
 
-```bash
-cd frontend
-python -m http.server 3000
-```
-
-API documentation is available at `http://127.0.0.1:8000/docs`.
-
-The first launch creates `backend/data/org_system.sqlite3` and seeds three explicitly labelled local fixtures. Use **Reset demo** to restore them. That database is intentionally ignored by Git.
-
-## Verify the core loop
+## Test
 
 ```bash
 cd backend
 python -m unittest discover -s tests -v
 ```
 
-The test proves that a candidate cannot be recalled until it passes verification, then confirms that a teammate can retrieve it with a receipt. For the scripted demo, follow [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+See [Commands](docs/COMMANDS.md) for local and authenticated cloud requests, and [Operations runbook](docs/OPERATIONS_RUNBOOK.md) for access and incident handling.
 
-## MCP test request
+## Hackathon evidence
 
-```bash
-curl -X POST http://127.0.0.1:8000/mcp \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
+The project is designed for the OpenAI Codex hackathon. The official rules require a project made with Codex using the required model, a public <3-minute demo video that explains both, a working repository, and the `/feedback` Session ID from the project thread where most core functionality was built. They also require new work during the submission period, or a meaningful, clearly evidenced extension of an existing project.
 
-## Hackathon evidence: Codex and timeframe
-
-The official rules require a project made with **Codex using GPT-5.6**, a public <3-minute YouTube demo that explains how both were used, a working repository, and the `/feedback` Session ID from the project thread where most core functionality was built. They also require new projects to be created during the Submission Period, or existing projects to be meaningfully extended during it with clear evidence distinguishing old and new work.
-
-This repository's baseline `Hive.skill` prototype was replaced by the Org_system implementation in this working tree. Before submitting, follow [docs/HACKATHON_EVIDENCE.md](docs/HACKATHON_EVIDENCE.md): make a dated commit of this implementation during the July 13–21, 2026 PT Submission Period; obtain the actual `/feedback` Session ID from the GPT-5.6 Codex thread; and replace its placeholders with honest, timestamped evidence. Do not invent a session ID or claim a model version that the session metadata does not confirm.
-
-The required Codex collaboration narrative and the project-specific engineering decisions are in [docs/SUBMISSION_SUMMARY.md](docs/SUBMISSION_SUMMARY.md). The recommended category is **Work & Productivity**.
+Use [Hackathon evidence](docs/HACKATHON_EVIDENCE.md) before submitting. Do not invent a Session ID or claim a model version that the session metadata does not confirm. The required collaboration narrative is in [Submission summary](docs/SUBMISSION_SUMMARY.md).
 
 ## Project map
 
-- [backend/app/main.py](backend/app/main.py) — FastAPI layer and API routes.
-- [backend/app/experience_store.py](backend/app/experience_store.py) — `MemoryStore` implementation, access filtering, activation-lite recall, and dashboard queries.
-- [backend/app/verifiers.py](backend/app/verifiers.py) — verification lifecycle rules.
-- [backend/app/mcp_server.py](backend/app/mcp_server.py) — MCP tool surface.
-- [frontend/index.html](frontend/index.html) — interactive capture → verify → serve demo and dashboards.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — implementation architecture.
-- [docs/COMMANDS.md](docs/COMMANDS.md) — API examples.
+- [backend/app/main.py](backend/app/main.py) — API, identity, roles, and browser routes.
+- [backend/app/mcp_service.py](backend/app/mcp_service.py) — standard authenticated Streamable HTTP MCP tools.
+- [backend/app/experience_store.py](backend/app/experience_store.py) — shared SQL store, visibility filtering, recall, and token records.
+- [frontend/index.html](frontend/index.html) — browser UI, Google sign-in, and employee Codex setup.
+- [Dockerfile](Dockerfile), [compose.yaml](compose.yaml), [render.yaml](render.yaml) — deployment assets.

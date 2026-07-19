@@ -10,7 +10,7 @@ VerifierMethod = Literal["outcome_signal", "llm_judge", "rerun_and_compare", "te
 
 
 class CaptureRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str = Field(default="server-derived", min_length=1, max_length=120, description="Ignored in cloud mode; identity comes from the credential.")
     task: str = Field(min_length=3, max_length=4000)
     trace_summary: str = Field(min_length=3, max_length=12000)
     tool_name: str = Field(default="MCP gateway", min_length=1, max_length=120)
@@ -31,13 +31,13 @@ class VerifyRequest(BaseModel):
 
 class RecallRequest(BaseModel):
     query: str = Field(min_length=3, max_length=4000)
-    consumer: str = Field(min_length=1, max_length=120)
+    consumer: str = Field(default="server-derived", min_length=1, max_length=120, description="Ignored in cloud mode; identity comes from the credential.")
     limit: int = Field(default=3, ge=1, le=10)
     record_usage: bool = True
 
 
 class GatewayEvent(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str = Field(default="server-derived", min_length=1, max_length=120, description="Ignored in cloud mode; identity comes from the credential.")
     tool_name: str = Field(min_length=1, max_length=120)
     tool_call: str = Field(min_length=1, max_length=4000)
     result: str = Field(min_length=1, max_length=12000)
@@ -47,8 +47,9 @@ class GatewayEvent(BaseModel):
     consent: bool = True
 
 
-class MCPRequest(BaseModel):
-    jsonrpc: Literal["2.0"] = "2.0"
-    id: str | int | None = None
-    method: str
-    params: dict[str, Any] = Field(default_factory=dict)
+class GoogleCredentialRequest(BaseModel):
+    credential: str = Field(min_length=20, max_length=12000)
+
+
+class MCPTokenRequest(BaseModel):
+    label: str = Field(default="Codex laptop", min_length=1, max_length=120)

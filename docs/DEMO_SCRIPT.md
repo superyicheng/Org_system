@@ -18,15 +18,15 @@ Show the candidate in Team discovery, then click **Run reproducibility check**.
 
 ## 1:10–1:40 — teammate reuse
 
-Click **Recall as Tom**.
+Click **Recall experience**.
 
-“Tom’s AI receives only verified experiences he is permitted to see. The returned receipt says Sarah authored it, when it was verified, the verdict, and the activation path. The recall is recorded, so attribution is measurable rather than a claim.”
+“The employee’s AI receives only verified experiences they are permitted to see. The returned receipt says who authored it, when it was verified, the verdict, and the activation path. The recall is recorded, so attribution is measurable rather than a claim.”
 
 ## 1:40–2:05 — dashboards and MCP
 
 Open **My experience**, **Team discovery**, and **Admin health**.
 
-“The user view separates contribution from consumption. Discovery answers who knows what. Admin health surfaces candidates, stale experiences, visibility, and the re-verification queue. The same API is available to AI tools through the MCP `recall_experience` and `store_experience` tools.”
+“The user view separates contribution from consumption. Discovery answers who knows what. Admin health surfaces candidates, stale experiences, visibility, and the re-verification queue. The same API is available to AI tools through bearer-authenticated Streamable HTTP MCP `recall_experience` and `store_experience` tools.”
 
 ## 2:05–2:30 — Codex and impact
 

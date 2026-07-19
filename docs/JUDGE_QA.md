@@ -10,8 +10,8 @@ The product contract is real and the metric comparator is executable. The browse
 
 ## What is the MCP implementation?
 
-`POST /mcp` implements the two product tools through JSON-RPC: `recall_experience` and `store_experience`. `POST /api/gateway/events` is the proxy/adaptor capture boundary. Production deployment should mount the same handlers through the official streamable-HTTP MCP SDK transport.
+`POST /mcp/` implements the two product tools through the official Python MCP SDK's Streamable HTTP transport: `recall_experience` and `store_experience`. It requires a per-employee bearer token and resolves the token to the employee identity before every call. `POST /api/gateway/events` is the proxy/adaptor capture boundary.
 
-## Why SQLite rather than SYNAPSE?
+## Why PostgreSQL/SQLite rather than SYNAPSE?
 
-SYNAPSE code is not a dependency of this hackathon build. SQLite makes the demo reproducible and has a narrow `ExperienceStore` boundary. It uses episodic records, semantic tag nodes, and activation-lite scoring today; a released native engine can replace it later.
+SYNAPSE code is not a dependency of this hackathon build. The shared deployment uses PostgreSQL; SQLite makes the no-account local demo reproducible. Both use the same narrow `ExperienceStore` boundary with episodic records, semantic tag nodes, and activation-lite scoring. A released native engine can replace that layer later.

@@ -12,7 +12,7 @@ The rules also require a working project built with Codex/GPT-5.6, a public YouT
 
 | Before this build | Org_system work to document |
 |---|---|
-| `6fa4f44` (July 17, 2026) was a Hive.skill platform-engineering prototype: Chroma retrieval, generated scripts, and one demo screen. | The current working tree replaces it with Org_system: generic experience lifecycle, consent/visibility, a swappable SQLite memory store, verifier state transitions, MCP recall/store tools, a gateway capture endpoint, three dashboards, and lifecycle tests. |
+| `6fa4f44` (July 17, 2026) was a Hive.skill platform-engineering prototype: Chroma retrieval, generated scripts, and one demo screen. | The current working tree replaces it with Org_system: generic experience lifecycle, consent/visibility, a PostgreSQL/SQLite memory store, verifier state transitions, authenticated Streamable HTTP MCP recall/store tools, Google identity, per-laptop revocable tokens, a gateway capture endpoint, three dashboards, and lifecycle tests. |
 
 The core implementation was committed during the Submission Period:
 
