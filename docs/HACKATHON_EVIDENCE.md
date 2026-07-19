@@ -14,6 +14,14 @@ The rules also require a working project built with Codex/GPT-5.6, a public YouT
 |---|---|
 | `6fa4f44` (July 17, 2026) was a Hive.skill platform-engineering prototype: Chroma retrieval, generated scripts, and one demo screen. | The current working tree replaces it with Org_system: generic experience lifecycle, consent/visibility, a swappable SQLite memory store, verifier state transitions, MCP recall/store tools, a gateway capture endpoint, three dashboards, and lifecycle tests. |
 
+The core implementation was committed during the Submission Period:
+
+```text
+Commit: 7abbfa0b506803a22621ea774a89420ad85cc1eb
+Timestamp: 2026-07-18T17:49:47-04:00
+Message: Build Org_system verified experience loop
+```
+
 ## Complete before submitting
 
 1. In the **GPT-5.6 Codex project thread that contains the majority of this core work**, run `/feedback` and put the returned value here:
@@ -38,6 +46,7 @@ The rules also require a working project built with Codex/GPT-5.6, a public YouT
 4. Keep the public repo or grant both required addresses access: `testing@devpost.com` and `build-week-event@openai.com`. Record the commit URL here:
 
    ```text
+   Core implementation commit: 7abbfa0b506803a22621ea774a89420ad85cc1eb
    Submission commit URL: REPLACE_WITH_URL
    Public demo video URL: REPLACE_WITH_URL
    ```
