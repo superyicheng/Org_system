@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orgsystem
+      POSTGRES_USER: orgsystem
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orgsystem -d orgsystem"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - org_system_postgres:/var/lib/postgresql/data
+
+  org-system:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://orgsystem:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/orgsystem
+      AUTH_MODE: ${AUTH_MODE:-google}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID in .env}
+      GOOGLE_WORKSPACE_DOMAIN: ${GOOGLE_WORKSPACE_DOMAIN:-}
+      ORG_SYSTEM_ADMIN_EMAILS: ${ORG_SYSTEM_ADMIN_EMAILS:?Set ORG_SYSTEM_ADMIN_EMAILS in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      PUBLIC_URL: ${PUBLIC_URL:-http://127.0.0.1:8000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:8000}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  org_system_postgres:

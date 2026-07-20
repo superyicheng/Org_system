@@ -32,6 +32,7 @@ class ExperienceLifecycleTest(unittest.TestCase):
             self.assertEqual(receipt["actor"], "Sarah")
             self.assertEqual(receipt["verification"]["last_verdict"], "VERIFIED")
             self.assertIn("REPRODUCED", receipt["verification"]["details"])
+            store.close()
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from app.mcp_server import handle
 
 def main() -> None:
     settings = get_settings()
-    store = ExperienceStore(settings.database_path)
+    store = ExperienceStore(settings)
     store.seed()
     for line in sys.stdin:
         try:

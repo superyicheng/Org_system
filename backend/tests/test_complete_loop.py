@@ -19,6 +19,7 @@ class CompleteLoopTest(unittest.TestCase):
         self.store.seed()
 
     def tearDown(self) -> None:
+        self.store.close()
         self.temporary_directory.cleanup()
 
     def test_verified_negative_result_prevents_duplicate_gpu_work(self) -> None:
@@ -73,7 +74,12 @@ class CompleteLoopTest(unittest.TestCase):
         self.assertTrue(any(hit["experience_id"] == candidate["id"] for hit in owner))
 
     def test_mock_distiller_preserves_failure_as_reusable_evidence(self) -> None:
-        llm = LLMClient(Settings(database_path=Path(self.temporary_directory.name) / "unused.sqlite3", llm_mode="mock"))
+        llm = LLMClient(Settings(
+            database_url=f"sqlite:///{Path(self.temporary_directory.name) / 'unused.sqlite3'}",
+            auth_mode="demo", google_client_id="", google_workspace_domain="",
+            admin_emails=frozenset(), session_secret="", public_url="http://127.0.0.1:8000",
+            allowed_origins=("http://127.0.0.1:8000",), llm_mode="mock",
+        ))
         result = distill(
             "We embedded 8 TB of Kubernetes logs. It failed as an investment: 148 GPU-hours produced only 3% accuracy gain. Sample first.",
             "Sarah",

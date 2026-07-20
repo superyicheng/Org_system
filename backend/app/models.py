@@ -11,7 +11,7 @@ VerifierMethod = Literal["outcome_signal", "llm_judge", "rerun_and_compare", "te
 
 
 class CaptureRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str = Field(default="server-derived", min_length=1, max_length=120)
     task: str = Field(min_length=3, max_length=4000)
     trace_summary: str = Field(min_length=3, max_length=12000)
     tool_name: str = Field(default="MCP gateway", min_length=1, max_length=120)
@@ -35,7 +35,7 @@ class VerifyRequest(BaseModel):
 
 class RecallRequest(BaseModel):
     query: str = Field(min_length=3, max_length=4000)
-    consumer: str = Field(min_length=1, max_length=120)
+    consumer: str = Field(default="server-derived", min_length=1, max_length=120)
     limit: int = Field(default=3, ge=1, le=10)
     record_usage: bool = True
 
@@ -43,7 +43,7 @@ class RecallRequest(BaseModel):
 class GatewayEvent(BaseModel):
     session_id: str = Field(default_factory=lambda: f"session-{uuid.uuid4().hex[:10]}", min_length=3, max_length=120)
     event_type: Literal["tool_result", "task_completed"] = "task_completed"
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str = Field(default="server-derived", min_length=1, max_length=120)
     tool_name: str = Field(min_length=1, max_length=120)
     tool_call: str = Field(min_length=1, max_length=4000)
     result: str = Field(min_length=1, max_length=12000)
@@ -73,3 +73,11 @@ class AssistRequest(BaseModel):
     message: str = Field(min_length=10, max_length=12000)
     title: str = Field(default="Team Member", min_length=1, max_length=120)
     record_usage: bool = True
+
+
+class GoogleCredentialRequest(BaseModel):
+    credential: str = Field(min_length=20, max_length=12000)
+
+
+class MCPTokenRequest(BaseModel):
+    label: str = Field(default="Codex laptop", min_length=1, max_length=120)
