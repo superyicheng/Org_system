@@ -5,15 +5,15 @@
 - [x] One memorable problem with quantified stakes: 148 GPU-hours for a 3% gain.
 - [x] Natural-language veteran capture; no scenario buttons.
 - [x] Another teammate receives verified experience before execution.
-- [x] Real SQLite persistence, local semantic vectors, hybrid retrieval, and permissions.
+- [x] Shared PostgreSQL/Cloud SQL or local SQLite persistence, semantic vectors, hybrid retrieval, and permissions.
 - [x] Failed work is reusable evidence rather than hidden embarrassment.
 - [x] Every hit includes attribution, verdict, freshness data, activation path, and SHA-256 receipt.
 - [x] Real isolated evidence replay with fail-closed metric comparison.
-- [x] Real Codex-compatible stdio MCP handshake and project-scoped config.
+- [x] Real authenticated Streamable HTTP Codex MCP handshake, revocable laptop tokens, and local stdio fallback.
 - [x] Codex server/project instructions trigger pre-flight recall and consented task-completion capture.
 - [x] AI judge receipt identifies rubric, score, rationale, and whether OpenAI or fallback produced it.
 - [x] User value, team knowledge, admin trust, and measured impact views.
-- [x] Ten automated tests, offline mock safety, and live OpenAI mode.
+- [x] Eleven automated tests, offline mock safety, cloud authorization checks, and live OpenAI mode.
 
 ## Must be completed by the submitter (cannot be fabricated by code)
 

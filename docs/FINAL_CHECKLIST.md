@@ -11,8 +11,8 @@
 - [x] Negative results can become verified reusable assets.
 - [x] Metric verification fails closed.
 - [x] Evidence replay runs in an independent process.
-- [x] Codex-compatible stdio MCP entrypoint is included.
-- [x] Ten automated tests pass, including semantic paraphrase recall and dynamic evidence replay.
+- [x] Authenticated Streamable HTTP MCP and a local stdio fallback are included.
+- [x] Eleven automated tests pass, including semantic paraphrase recall, dynamic evidence replay, and cloud authorization.
 
 ## Before presenting
 

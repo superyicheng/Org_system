@@ -7,8 +7,8 @@ This file compares the current repository against `SYSTEM_DESIGN_AND_BUILD_REPOR
 | Milestone | What the text requires | What exists now | Strict status |
 |---|---|---|---|
 | M0 | FastAPI `/health` and an empty Next.js app | FastAPI `/health`; zero-build HTML instead of Next.js | Partial |
-| M1 | Experience model, swappable `MemoryStore`, Cognee or SQLite+embedding, write/recall proof | JSON Schema validation, `MemoryStore` protocol, SQLite episodic records, deterministic semantic vectors, hybrid recall, SHA-256 receipts | Complete for the allowed SQLite+embedding path |
-| M2 | MCP server plus a gateway that proxies and logs real client tool traffic | stdio MCP server, HTTP JSON-RPC tools, project `.codex/config.toml`, server instructions, gateway event log, verified handshake test | Mostly complete; a live Codex screenshot/tool-call receipt is still a submission-evidence task |
+| M1 | Experience model, swappable `MemoryStore`, Cognee or SQLite+embedding, write/recall proof | JSON Schema validation, `MemoryStore` protocol, Cloud SQL PostgreSQL or SQLite episodic records, deterministic semantic vectors, hybrid recall, SHA-256 receipts | Complete for the allowed SQLite+embedding path and shared PostgreSQL deployment |
+| M2 | MCP server plus a gateway that proxies and logs real client tool traffic | Authenticated Streamable HTTP MCP, personal revocable tokens, stdio demo fallback, project template, gateway event log, verified remote handshake test | Complete; a live Codex screenshot/tool-call receipt is still a submission-evidence task |
 | M3 | Automatic session boundary detection and Claude distillation with near-zero effort | Gateway `task_completed` boundary automatically distills and stores a consented trace; `AGENTS.md` instructs Codex to capture completed work | Complete for the hackathon connector path; not a universal transparent proxy |
 | M4 | `outcome_signal`, real `llm_judge`, verdict transitions, scheduled re-verification | Objective evidence, CI exit code, OpenAI/mock judge receipt, fail-closed replay, lifecycle transitions, background freshness worker | Complete for the defined verifier seam |
 | M5 | Verified/visible serving with receipts and a second user's AI receiving context | Filtering, receipts, attribution, usage recording, MCP recall, end-to-end tests | Backend complete; real Codex context injection still needs live proof |
@@ -17,7 +17,7 @@ This file compares the current repository against `SYSTEM_DESIGN_AND_BUILD_REPOR
 
 ## What is genuinely working
 
-1. Sarah can submit a completed trace and create a schema-valid verified experience.
+1. Sarah can submit a completed trace and create a schema-valid verified experience in demo mode; production submissions remain candidates until an administrator verifies them.
 2. Tom or Mei can retrieve only verified, consented, visible experience.
 3. A verified negative result can stop a duplicate resource-heavy proposal.
 4. Every result includes origin, verdict, activation score, and content hash.
@@ -29,16 +29,17 @@ This file compares the current repository against `SYSTEM_DESIGN_AND_BUILD_REPOR
 10. Paraphrased proposals activate the correct experience through semantic vectors.
 11. The AI judge returns a score, rationale, rubric, and provider/fallback receipt.
 12. Three governance views and measured impact are visible in the browser.
+13. Google identity, per-laptop Codex tokens, and cloud-mode admin verification are exercised end to end.
 
 ## Hackathon-safe substitutes
 
 | Component | Real behavior | Substitute or gap |
 |---|---|---|
-| Storage | SQLite persistence, access filtering, receipts, hybrid semantic vector activation | Not Cognee or native SYNAPSE |
+| Storage | Cloud SQL PostgreSQL in production, SQLite locally, access filtering, receipts, hybrid semantic vector activation | Not Cognee or native SYNAPSE |
 | Capture | Real gateway event log, task-boundary distillation, and persistence | Not a universal proxy for every third-party MCP transport |
 | LLM | OpenAI Responses API when configured | Deterministic English fallback; design text specified Claude |
 | Verification | Real state transitions, complete metric comparison, subprocess replay | Bounded local workflow, not iDynoMiCS |
-| MCP | Working stdio tools, Codex project config, server instructions, and HTTP JSON-RPC handler | Live Codex call evidence must be recorded after restarting the trusted project |
+| MCP | Authenticated Streamable HTTP tools, personal token revocation, Codex remote config, server instructions, and stdio local fallback | Live Codex call evidence must be recorded after connecting a real employee laptop |
 | Presentation | Working org.system demo with Tom/Sarah/Mei and three governance views | Zero-build HTML, not Next.js |
 
 ## Next work required for literal compliance

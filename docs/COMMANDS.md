@@ -11,6 +11,8 @@ python -m uvicorn app.main:app --reload --port 8000
 
 Open `http://127.0.0.1:8000`.
 
+For the shared Cloud Run and Cloud SQL setup, follow [GOOGLE_CLOUD_DEPLOYMENT.md](GOOGLE_CLOUD_DEPLOYMENT.md) instead of exposing a local development server.
+
 ## Start with live OpenAI generation
 
 ```powershell
@@ -46,22 +48,24 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/assist -ContentTyp
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/experiences/exp-verified-log-embedding/replay
 ```
 
-## MCP HTTP check
+## Cloud MCP HTTP check
+
+After creating a personal connection in the hosted web app, set the one-time token in your terminal and use the exact hosted URL. The service returns a Streamable HTTP event stream on initialization.
 
 ```powershell
+$env:ORG_SYSTEM_MCP_TOKEN="orgmcp_replace_with_your_personal_token"
 $body = @{
   jsonrpc = "2.0"
   id = 1
-  method = "tools/call"
+  method = "initialize"
   params = @{
-    name = "avoid_duplicate_work"
-    arguments = @{
-      proposal = "Embed Kubernetes logs for semantic search"
-      consumer = "Tom"
-    }
+    protocolVersion = "2025-06-18"
+    capabilities = @{}
+    clientInfo = @{ name = "manual-check"; version = "1" }
   }
 } | ConvertTo-Json -Depth 6
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/mcp -ContentType application/json -Body $body
+$headers = @{ Authorization = "Bearer $env:ORG_SYSTEM_MCP_TOKEN"; Accept = "application/json, text/event-stream" }
+Invoke-WebRequest -Method Post -Uri https://your-service.example/mcp/ -Headers $headers -ContentType application/json -Body $body
 ```
 
 ## Codex stdio MCP registration
