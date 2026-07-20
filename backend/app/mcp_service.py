@@ -103,13 +103,13 @@ def store_experience(task: str, trace_summary: str, tags: list[str] | None = Non
 
 @server.tool()
 def record_completed_work(task: str, trace_summary: str, what_worked: str, evidence_confirmed: bool, tags: list[str] | None = None, visibility: str = "team") -> dict[str, str]:
-    """Capture an evidence-backed completed lesson and verify it when evidence is confirmed."""
+    """Capture a completed lesson; cloud deployments hold it for admin verification before teammate reuse."""
     employee = _employee()
     if _store is None:
         raise RuntimeError("org.system storage is unavailable.")
     candidate = _store.create_candidate({"actor": {"id": employee["email"], "display_name": employee["display_name"]}, "task": task, "trace_summary": trace_summary, "tool_name": "Codex via Streamable HTTP MCP", "tags": tags or [], "rationale": what_worked, "visibility": visibility, "consent": True, "outcome": "success", "domain_extension": {"reuse_recipe": what_worked}})
-    verified = _store.verify(candidate["id"], verify(candidate, {"method": "outcome_signal", "evidence_confirmed": evidence_confirmed}))
-    return {"experience_id": verified["id"], "status": verified["status"], "asset_hash": _store.hash_for(verified["id"]) or ""}
+    saved = _store.verify(candidate["id"], verify(candidate, {"method": "outcome_signal", "evidence_confirmed": evidence_confirmed})) if _settings.is_demo else candidate
+    return {"experience_id": saved["id"], "status": saved["status"], "asset_hash": _store.hash_for(saved["id"]) or ""}
 
 
 app = server.streamable_http_app()

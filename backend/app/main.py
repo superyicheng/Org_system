@@ -230,7 +230,10 @@ def revoke_mcp_token(token_id: str, request: Request) -> dict[str, bool]:
 @app.get("/api/experiences", tags=["experience"])
 def experiences(request: Request, include_nonserveable: bool = True) -> dict[str, Any]:
     identity = require_identity(request)
-    return {"experiences": store_for(request).list_experiences(include_nonserveable=include_nonserveable, consumer=None if identity.role == "admin" else identity.email)}
+    items = store_for(request).list_experiences(include_nonserveable=include_nonserveable, consumer=None if identity.role == "admin" else identity.email)
+    if identity.role != "admin":
+        items = [item for item in items if item["status"] == "verified" or actor_key(item) == identity.email]
+    return {"experiences": items}
 
 
 @app.post("/api/capture", status_code=201, tags=["capture"])
@@ -273,7 +276,9 @@ def verify_experience(experience_id: str, payload: VerifyRequest, request: Reque
     experience = store.get(experience_id)
     if experience is None:
         raise HTTPException(status_code=404, detail="Experience not found.")
-    if identity.role != "admin" and actor_key(experience) != identity.email:
+    if not request.app.state.settings.is_demo and identity.role != "admin":
+        raise HTTPException(status_code=403, detail="Only an admin can verify shared production experience.")
+    if request.app.state.settings.is_demo and identity.role != "admin" and actor_key(experience) != identity.email:
         raise HTTPException(status_code=403, detail="Only the contributor or an admin can verify this experience.")
     updated = store.verify(experience_id, verify(experience, payload.model_dump()))
     return {"experience": updated, "serveable": updated["status"] == "verified"}
@@ -286,7 +291,9 @@ def replay_and_verify(experience_id: str, request: Request) -> dict[str, Any]:
     experience = store.get(experience_id)
     if experience is None:
         raise HTTPException(status_code=404, detail="Experience not found.")
-    if identity.role != "admin" and actor_key(experience) != identity.email:
+    if not request.app.state.settings.is_demo and identity.role != "admin":
+        raise HTTPException(status_code=403, detail="Only an admin can replay shared production experience.")
+    if request.app.state.settings.is_demo and identity.role != "admin" and actor_key(experience) != identity.email:
         raise HTTPException(status_code=403, detail="Only the contributor or an admin can replay this experience.")
     try:
         replay = replay_experience(experience)
@@ -308,7 +315,9 @@ def ai_judge_experience(experience_id: str, request: Request) -> dict[str, Any]:
     experience = store.get(experience_id)
     if experience is None:
         raise HTTPException(status_code=404, detail="Experience not found.")
-    if identity.role != "admin" and actor_key(experience) != identity.email:
+    if not request.app.state.settings.is_demo and identity.role != "admin":
+        raise HTTPException(status_code=403, detail="Only an admin can judge shared production experience.")
+    if request.app.state.settings.is_demo and identity.role != "admin" and actor_key(experience) != identity.email:
         raise HTTPException(status_code=403, detail="Only the contributor or an admin can judge this experience.")
     judge = request.app.state.llm.judge_experience(experience)
     updated = store.verify(experience_id, verify(experience, {
@@ -359,10 +368,13 @@ def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
         })
         verified = store.verify(candidate["id"], verify(candidate, {
             "method": "outcome_signal", "evidence_confirmed": True,
-        }))
+        })) if request.app.state.settings.is_demo else candidate
         fallback = (
             "I captured the completed experiment as a verified negative result. The reusable lesson is: "
             f"{distilled['what_worked']} The evidence and provenance are now available to the next teammate's AI - no documentation form required."
+            if request.app.state.settings.is_demo else
+            "I captured the completed experiment as a candidate for administrator verification. The reusable lesson is: "
+            f"{distilled['what_worked']} It will become available to teammates only after the evidence gate passes."
         )
         answer = llm.generate(
             instructions="Respond as an organizational AI memory. Explain what was captured, why the failed result is valuable, and how a teammate will reuse it. Be concise.",
@@ -424,10 +436,14 @@ def gateway_event(payload: GatewayEvent, request: Request) -> dict[str, Any]:
     })
     experience = store.verify(candidate["id"], verify(candidate, {
         "method": "outcome_signal", "evidence_confirmed": payload.succeeded,
-    }))
+    })) if request.app.state.settings.is_demo else candidate
     return {
         "captured": True, "event": event, "experience": experience,
-        "note": "Task boundary automatically distilled and verified the consented trace." if payload.succeeded else "Failed outcome kept as a candidate until evidence is confirmed.",
+        "note": (
+            "Task boundary automatically distilled and verified the consented trace."
+            if request.app.state.settings.is_demo and payload.succeeded else
+            "Task boundary automatically distilled the consented trace; it awaits administrator verification before teammate reuse."
+        ),
     }
 
 

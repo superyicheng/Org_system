@@ -353,6 +353,10 @@ class ExperienceStore:
 
     def team_dashboard(self, *, consumer: str | None = None) -> dict[str, Any]:
         items = self.list_experiences(consumer=consumer)
+        if consumer is not None:
+            # An employee may see their own pending draft, but a teammate's
+            # candidate is never surfaced as organizational knowledge.
+            items = [item for item in items if item["status"] == "verified" or actor_key(item) == consumer.lower()]
         knowledge: dict[str, Counter[str]] = defaultdict(Counter)
         for item in items:
             for tag in item.get("tags", []):
@@ -390,6 +394,14 @@ class ExperienceStore:
             "contribution_by_member": [{"actor": actor, "count": count} for actor, count in contributions.most_common()],
             "reverify_queue": due,
             "capture_events": self.capture_events(limit=8),
+            "pending_verification": [
+                {
+                    "id": item["id"], "task": task_goal(item), "actor": actor_name(item),
+                    "captured_at": item["captured_at"], "trace_summary": item.get("trace_summary", ""),
+                    "source_tool": item.get("source", {}).get("tool", "unknown"),
+                }
+                for item in items if item["status"] == "candidate"
+            ],
             "verified_reuse_events": sum(item.get("usage", {}).get("times_served", 0) for item in items if item["status"] == "verified"),
         }
 

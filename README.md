@@ -18,7 +18,13 @@ The winning demo story is concrete: Sarah records that embedding 8 TB of Kuberne
 - A task-boundary gateway that automatically distills completed, consented traces.
 - Provider-backed AI judging with an explicit deterministic fallback receipt.
 - User attribution, team discovery, trust-center, and measured-impact views.
-- Ten automated tests covering the full lifecycle, semantic recall, permissions, replay, MCP, and API flow.
+- Eleven automated tests covering the full lifecycle, semantic recall, local demo flow, cloud permissions, replay, and MCP.
+
+## Shared cloud system (Google Cloud)
+
+For real employee use, deploy the FastAPI service to **Cloud Run** and use **Cloud SQL for PostgreSQL** as the shared store. Google Identity signs employees into the web app; each employee then creates a personal, revocable bearer token for Codex's authenticated Streamable HTTP MCP connection. Their laptops do not run a database or expose any service.
+
+Start with [Google Cloud production deployment](docs/GOOGLE_CLOUD_DEPLOYMENT.md). It identifies the one Google Cloud project, OAuth web client, Cloud SQL instance, secrets, and Cloud Run service to create. Then use [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md) on every laptop.
 
 ## Demo-safe boundary
 
@@ -83,9 +89,11 @@ The full narration is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 ## Connect org.system to Codex through MCP
 
-The website does not require MCP. MCP is the proof that the same organizational memory can be used inside an AI coding client.
+The website does not require MCP. In the shared Cloud Run system, it is how the same organizational memory reaches Codex on each employee laptop.
 
-The repository already includes `.codex/config.toml` and `AGENTS.md`. Open this folder as a trusted Codex project, then restart Codex. Codex will be instructed to run the duplicate-work pre-flight before costly work and to offer a consented capture after objectively completed work.
+For the cloud system, use **Connect Codex** in the signed-in web app. It displays a one-time personal token and the exact remote MCP configuration. Follow [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md); do not commit a token. The checked-in `.codex/config.toml` is deliberately disabled template text only.
+
+For the local award demo only, `AGENTS.md` and `backend/mcp_stdio.py` remain available as a stdio MCP fallback:
 
 From a terminal where `codex` and Python are available:
 
@@ -126,7 +134,7 @@ powershell -ExecutionPolicy Bypass -File ..\scripts\smoke-test.ps1
 - `POST /api/experiences/{id}/verify/ai` — rubric-based AI judge with provider receipt.
 - `POST /api/recall` — verified and permitted recall with attribution.
 - `POST /api/gateway/events` — automatic connector capture boundary.
-- `POST /mcp` — HTTP JSON-RPC integration surface.
+- `POST /mcp/` — authenticated Streamable HTTP MCP endpoint (cloud).
 - `GET /api/dashboard/user/{title}`, `/team`, `/admin` — contribution, discovery, and health views.
 - `GET /api/dashboard/impact` — measured reuse and avoided-resource accounting.
 
@@ -136,9 +144,10 @@ powershell -ExecutionPolicy Bypass -File ..\scripts\smoke-test.ps1
 - `backend/app/main.py` — FastAPI routes and conversational orchestration.
 - `backend/app/distiller.py` / `llm_client.py` — live AI plus deterministic fallback.
 - `backend/app/experience_store.py` — schema-validated memory, permissions, receipts, and recall.
+- `backend/app/auth.py` / `mcp_service.py` — Google identity, revocable Codex tokens, and remote MCP service.
 - `backend/app/verifiers.py` / `runners.py` — fail-closed verification and real process replay.
 - `backend/mcp_stdio.py` — Codex-compatible stdio MCP entrypoint.
-- `backend/tests/` — eight automated lifecycle and integration tests.
+- `backend/tests/` — local-demo and cloud-mode lifecycle/integration tests.
 - `docs/BUILD_COMPLETION_REPORT.md` — design-outline completion record and honest boundaries.
 
 The product name is `org.system`; the repository folder remains `Org_system` for compatibility with the existing workspace.

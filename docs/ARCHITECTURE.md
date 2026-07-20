@@ -3,7 +3,7 @@
 ```text
 MCP client / tool adapter
           │
-          ├── POST /mcp (recall_experience, store_experience)
+          ├── POST /mcp/ Streamable HTTP (personal bearer token)
           └── POST /api/gateway/events (captured trace)
                            │
                            ▼
@@ -13,7 +13,7 @@ MCP client / tool adapter
                  verifier (outcome / test / rerun)
                            │ verified, stale, or rejected
                            ▼
- SQLite episodic records + tag semantic nodes + usage events
+ PostgreSQL (Cloud SQL) or SQLite episodic records + semantic vectors + usage events
                            │
                            ▼
            visibility-filtered activation-lite recall
@@ -22,7 +22,7 @@ MCP client / tool adapter
      teammate's AI gets a provenance + verification receipt
 ```
 
-`ExperienceStore` is the `MemoryStore` seam. SQLite keeps the hackathon project runnable with no cloud account. Its retrieval is deliberately modest: token overlap finds entry nodes, tag overlap adds a semantic activation bonus, then the store returns only consented, `verified` experiences. The public API does not pretend this is native SYNAPSE; a native graph/vector engine can replace this file without changing the routes.
+`ExperienceStore` is the `MemoryStore` seam. SQLite keeps the local demo runnable with no cloud account; production uses the same schema through SQLAlchemy against Cloud SQL PostgreSQL. Its retrieval is deliberately modest: token overlap finds entry nodes, tag overlap adds a semantic activation bonus, then the store returns only consented, `verified` experiences. The public API does not pretend this is native SYNAPSE; a native graph/vector engine can replace this file without changing the routes.
 
 Lifecycle state is explicit:
 

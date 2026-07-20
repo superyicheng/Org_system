@@ -2,7 +2,7 @@
 
 ## Before doing work
 
-- Before resource-heavy, novel, debugging, migration, deployment, or incident work, call the `org_system` MCP tool `avoid_duplicate_work` using the user's natural-language proposal and their visible team name.
+- Before resource-heavy, novel, debugging, migration, deployment, or incident work, call the `org_system` MCP tool `avoid_duplicate_work` using the user's natural-language proposal. The shared service derives employee identity from the personal Codex token.
 - If a verified match is returned, show the attribution receipt and adapt the plan before spending meaningful compute, tokens, or engineering time.
 - Never present a candidate, stale, private, or non-consented experience as verified guidance.
 
