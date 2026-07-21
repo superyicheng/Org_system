@@ -1,30 +1,37 @@
-# Codex MCP configuration template for org.system.
+# Codex MCP configuration for org.system.
 #
-# IMPORTANT: Codex does NOT read this file from the repository. Verified against
-# codex-cli 0.144.5: with an empty CODEX_HOME and this repo as the working directory,
-# `codex mcp list` reports no servers. Only `~/.codex/config.toml` is loaded.
+# Codex reads this file for anyone who opens this repository as a trusted project, so it
+# configures the connection for the whole team. Verified with codex-cli 0.144.6: `codex mcp
+# list` run from this directory lists org_system. (Trust lives in the developer's own
+# ~/.codex/config.toml under [projects."<path>"]. Without that entry the project is
+# untrusted and this file is ignored.)
 #
-# Copy the block below into your own ~/.codex/config.toml, then restart Codex.
-# The behavioural rules in AGENTS.md *are* read from the repository and apply
-# automatically; this file supplies the connection and the fail-closed enforcement.
+# There is no token. org.system authenticates over OAuth, so each developer runs this once
+# and approves the connection in the browser:
 #
-# The service URL is public and safe to check in. The personal token is NOT: it stays
-# in the ORG_SYSTEM_MCP_TOKEN environment variable on each laptop. Never commit a token.
+#   codex mcp login org_system
 #
-# required = true is deliberately fail-closed: if org.system cannot be reached, or the
-# token is missing or revoked, the Codex session fails to start instead of silently
-# running without team memory. Set it to false if you need to work offline.
+# Nothing secret belongs in this file. OAuth tokens are held by Codex itself, never in
+# configuration or environment variables. The behavioural rules in AGENTS.md are read from
+# the repository and apply automatically.
+#
+# required is deliberately false while the team is still connecting. Fail-closed is the
+# safer end state, but `required = true` prevents Codex from starting at all for anyone who
+# has not yet run `codex mcp login org_system`, which blocks the whole session rather than
+# just team memory. Flip it to true once everyone has logged in.
 [mcp_servers.org_system]
 url = "https://org-system-6hqysxhb3q-uk.a.run.app/mcp/"
-bearer_token_env_var = "ORG_SYSTEM_MCP_TOKEN"
 enabled = true
-required = true
+required = false
 tool_timeout_sec = 30
-enabled_tools = ["avoid_duplicate_work", "recall_experience", "record_completed_work"]
+enabled_tools = ["avoid_duplicate_work", "recall_experience", "record_completed_work", "capture_session_context"]
 
 # Valid values are auto, prompt, writes, approve. Writing to organizational memory
 # always requires explicit user approval.
 default_tools_approval_mode = "writes"
 
 [mcp_servers.org_system.tools.record_completed_work]
+approval_mode = "writes"
+
+[mcp_servers.org_system.tools.capture_session_context]
 approval_mode = "writes"

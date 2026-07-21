@@ -48,24 +48,42 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/assist -ContentTyp
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/experiences/exp-verified-log-embedding/replay
 ```
 
-## Cloud MCP HTTP check
+## Cloud MCP OAuth check
 
-After creating a personal connection in the hosted web app, set the one-time token in your terminal and use the exact hosted URL. The service returns a Streamable HTTP event stream on initialization.
+There is no token to paste. These three calls need no credentials and prove that an MCP
+client can discover and authenticate to the service on its own. Run them against the exact
+hosted URL.
 
 ```powershell
-$env:ORG_SYSTEM_MCP_TOKEN="orgmcp_replace_with_your_personal_token"
-$body = @{
-  jsonrpc = "2.0"
-  id = 1
-  method = "initialize"
-  params = @{
-    protocolVersion = "2025-06-18"
-    capabilities = @{}
-    clientInfo = @{ name = "manual-check"; version = "1" }
-  }
-} | ConvertTo-Json -Depth 6
-$headers = @{ Authorization = "Bearer $env:ORG_SYSTEM_MCP_TOKEN"; Accept = "application/json, text/event-stream" }
-Invoke-WebRequest -Method Post -Uri https://your-service.example/mcp/ -Headers $headers -ContentType application/json -Body $body
+$service = "https://your-service.example"
+
+# 1. An unauthenticated call must be challenged, and the challenge must name its metadata.
+try {
+  Invoke-WebRequest -Method Post -Uri "$service/mcp/" -ContentType application/json `
+    -Headers @{ Accept = "application/json, text/event-stream" } `
+    -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+} catch {
+  $_.Exception.Response.StatusCode.value__          # expect 401
+  $_.Exception.Response.Headers["WWW-Authenticate"] # contains resource_metadata="..."
+}
+
+# 2. The metadata document the challenge points at must actually resolve.
+Invoke-RestMethod "$service/.well-known/oauth-protected-resource/mcp"
+
+# 3. The authorization server must advertise PKCE and dynamic client registration.
+Invoke-RestMethod "$service/.well-known/oauth-authorization-server"
+```
+
+Expect `401` with a `resource_metadata` pointer, then two `200` documents. If the URL in the
+challenge does not resolve, discovery is broken and no client can connect, even though the
+endpoint itself is up.
+
+To actually call a tool, connect a real client and let it complete the OAuth flow:
+
+```powershell
+codex mcp add org_system --url https://your-service.example/mcp/
+codex mcp login org_system
+codex mcp list
 ```
 
 ## Codex stdio MCP registration

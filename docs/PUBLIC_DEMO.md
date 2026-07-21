@@ -6,7 +6,7 @@ The public trial is a separate product surface for hackathon judges and visitors
 - Auth: Google sign-in, any Google account once the OAuth app is published
 - Data: a dedicated `orgsystem_public` database, separate from the private organization service
 - Privacy: every capture is forced to `private`; list, recall, dashboard, verification, replay, and MCP tools filter to the signed-in visitor
-- MCP: a visitor can create and revoke a personal token from **Connect Codex**; it cannot access another visitor's memory
+- MCP: a visitor connects an AI client over OAuth and can revoke it at any time; that client cannot reach another visitor's memory
 
 This is intentionally not a shared organizational workspace. The private deployment at `https://org-system-6hqysxhb3q-uk.a.run.app` remains allowlisted for the organization and has its own database credentials and Cloud Run service account.
 
@@ -24,7 +24,7 @@ Set the app's Audience to **External**, then publish it to **In production**. Te
 
 1. Open the public-trial URL and sign in with Google.
 2. Describe a completed task to save a private lesson, or ask about a planned task to recall prior lessons.
-3. Open **Connect Codex** to create a personal remote MCP connection for that laptop.
+3. Connect an AI client with `codex mcp add org_system --url <trial-url>/mcp/` followed by `codex mcp login org_system`, then approve it in the browser.
 4. Return to the same URL from another browser and sign in with the same Google account to see the same personal memory.
 
-The Cloud Run health endpoint does not expose records. All application data routes require either the visitor's signed Google session or a per-visitor MCP bearer token.
+The Cloud Run health endpoint does not expose records. All application data routes require either the visitor's signed Google session or an OAuth access token issued to that visitor.

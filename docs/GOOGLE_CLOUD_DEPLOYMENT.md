@@ -96,10 +96,10 @@ For a custom domain, use that exact HTTPS origin in both the OAuth settings and 
 1. Open `${PUBLIC_URL}/health`; it must report `"status":"ok"`, `"auth_mode":"google"`, and no database errors.
 2. Open `${PUBLIC_URL}` in a private browser window. Sign in with an account in the approved Workspace domain.
 3. Confirm the configured admin can see **Trust center**, and a regular employee cannot.
-4. Click **Connect Codex**, create a personal connection, and follow [Codex employee setup](CODEX_EMPLOYEE_SETUP.md) from a separate laptop.
-5. Revoke that test connection in the same dialog and confirm Codex's next request fails with `401`.
+4. From a separate laptop, follow [Codex employee setup](CODEX_EMPLOYEE_SETUP.md) to connect a client over OAuth.
+5. Revoke that connection from the Organization panel and confirm Codex's next request fails with `401`.
 
-The configured admin is the initial allowlisted user. In **Trust center**, the admin can add or remove employee Google emails; a removed employee’s browser session and personal MCP token stop working immediately. The Trust center also contains the live PostgreSQL-backed system, team, impact, and evidence statistics.
+The configured admin is the initial allowlisted user. In **Trust center**, the admin can add or remove employee Google emails; a removed employee’s browser session and OAuth connections stop working immediately. The Trust center also contains the live PostgreSQL-backed system, team, impact, and evidence statistics.
 
 The service creates its tables on first connection and seeds the transparent award fixtures only when the database is empty. Use a dedicated empty production database if you do not want those fixtures present.
 
