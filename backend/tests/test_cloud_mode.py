@@ -51,6 +51,17 @@ with TestClient(app) as client:
                            json={'method': 'outcome_signal', 'evidence_confirmed': True})
     assert verified.status_code == 200, verified.text
     assert verified.json()['experience']['status'] == 'verified'
+
+    invited = client.post('/api/admin/members', headers={'Authorization': f'Bearer {admin}'},
+                          json={'email': 'new.employee@example.com'})
+    assert invited.status_code == 201, invited.text
+    invited_session = issue_session(Identity('new.employee@example.com', 'New Employee', 'employee', 'test'), settings)
+    admitted = client.get('/api/auth/me', headers={'Authorization': f'Bearer {invited_session}'})
+    assert admitted.status_code == 200, admitted.text
+    removed = client.delete('/api/admin/members/new.employee%40example.com', headers={'Authorization': f'Bearer {admin}'})
+    assert removed.status_code == 200, removed.text
+    rejected_after_removal = client.get('/api/auth/me', headers={'Authorization': f'Bearer {invited_session}'})
+    assert rejected_after_removal.status_code == 401, rejected_after_removal.text
 print('cloud mode security: OK')
 '''
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -62,6 +73,7 @@ print('cloud mode security: OK')
                 "PUBLIC_URL": "https://org-system.example",
                 "ALLOWED_ORIGINS": "https://org-system.example",
                 "ORG_SYSTEM_ADMIN_EMAILS": "admin@example.com",
+                "ORG_SYSTEM_ALLOWED_EMAILS": "employee@example.com",
                 "DATABASE_URL": f"sqlite:///{Path(temporary_directory) / 'cloud.sqlite3'}",
                 "ORG_SYSTEM_LLM_MODE": "mock",
             })

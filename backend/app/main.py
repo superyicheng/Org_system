@@ -13,7 +13,7 @@ from app.distiller import distill
 from app.experience_store import ExperienceStore, actor_key
 from app.llm_client import LLMClient
 from app.mcp_service import app as mcp_app, configure_mcp, lifespan as mcp_lifespan
-from app.models import AssistRequest, CaptureRequest, DistillRequest, GatewayEvent, GoogleCredentialRequest, MCPTokenRequest, RecallRequest, VerifyRequest
+from app.models import AssistRequest, CaptureRequest, DistillRequest, GatewayEvent, GoogleCredentialRequest, MCPTokenRequest, MemberInviteRequest, RecallRequest, VerifyRequest
 from app.runners import replay_experience
 from app.verifiers import verify
 
@@ -190,7 +190,10 @@ def google_sign_in(payload: GoogleCredentialRequest, request: Request) -> dict[s
     if settings.is_demo:
         raise HTTPException(status_code=400, detail="Google sign-in is disabled in local demo mode.")
     identity = verify_google(payload.credential, settings)
-    store_for(request).upsert_user(email=identity.email, display_name=identity.display_name, role=identity.role)
+    store = store_for(request)
+    if not store.member_is_allowed(email=identity.email, configured_emails=settings.admin_emails | settings.allowed_emails):
+        raise HTTPException(status_code=403, detail="Your Google account has not been added to this org.system team.")
+    store.upsert_user(email=identity.email, display_name=identity.display_name, role=identity.role)
     return {"access_token": issue_session(identity, settings), "token_type": "bearer", "user": identity.__dict__}
 
 
@@ -225,6 +228,36 @@ def revoke_mcp_token(token_id: str, request: Request) -> dict[str, bool]:
     if not revoked:
         raise HTTPException(status_code=404, detail="Active Codex connection not found.")
     return {"revoked": True}
+
+
+@app.get("/api/admin/members", tags=["admin"])
+def list_members(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    members = store_for(request).list_users()
+    configured_admins = request.app.state.settings.admin_emails
+    known = {member["email"] for member in members}
+    members.extend({"email": email, "display_name": email.split("@", 1)[0], "role": "admin", "updated_at": "configured"} for email in configured_admins if email not in known)
+    return {"members": sorted(members, key=lambda member: (member["role"] != "admin", member["email"]))}
+
+
+@app.post("/api/admin/members", status_code=201, tags=["admin"])
+def provision_member(payload: MemberInviteRequest, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    try:
+        member = store_for(request).provision_employee(payload.email)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"member": member, "message": "Employee may now sign in with this Google account and create a personal Codex connection."}
+
+
+@app.delete("/api/admin/members/{email}", tags=["admin"])
+def deprovision_member(email: str, request: Request) -> dict[str, bool]:
+    require_admin(request)
+    if email.lower() in request.app.state.settings.admin_emails:
+        raise HTTPException(status_code=422, detail="Configured admins cannot be removed from the web allowlist.")
+    if not store_for(request).deprovision_employee(email):
+        raise HTTPException(status_code=404, detail="Employee is not on the team allowlist.")
+    return {"removed": True}
 
 
 @app.get("/api/experiences", tags=["experience"])

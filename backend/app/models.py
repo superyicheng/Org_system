@@ -81,3 +81,7 @@ class GoogleCredentialRequest(BaseModel):
 
 class MCPTokenRequest(BaseModel):
     label: str = Field(default="Codex laptop", min_length=1, max_length=120)
+
+
+class MemberInviteRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)

@@ -461,6 +461,35 @@ class ExperienceStore:
             if not updated.rowcount:
                 conn.execute(text("INSERT INTO users (email, display_name, role, updated_at) VALUES (:email, :display_name, :role, :updated_at)"), values)
 
+    def member_is_allowed(self, *, email: str, configured_emails: frozenset[str]) -> bool:
+        normalized = email.strip().lower()
+        if normalized in configured_emails:
+            return True
+        with self._connection() as conn:
+            row = conn.execute(text("SELECT 1 FROM users WHERE email=:email"), {"email": normalized}).first()
+        return row is not None
+
+    def list_users(self) -> list[dict[str, str]]:
+        with self._connection() as conn:
+            rows = conn.execute(text("SELECT email, display_name, role, updated_at FROM users ORDER BY email")).mappings().all()
+        return [dict(row) for row in rows]
+
+    def provision_employee(self, email: str) -> dict[str, str]:
+        normalized = email.strip().lower()
+        if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+            raise ValueError("Provide a valid employee email address.")
+        self.upsert_user(email=normalized, display_name=normalized.split("@", 1)[0], role="employee")
+        member = self.identity_for_email(normalized)
+        if not member:
+            raise RuntimeError("Employee provisioning did not persist.")
+        return member
+
+    def deprovision_employee(self, email: str) -> bool:
+        normalized = email.strip().lower()
+        with self._connection() as conn:
+            result = conn.execute(text("DELETE FROM users WHERE email=:email"), {"email": normalized})
+        return bool(result.rowcount)
+
     def create_mcp_token(self, *, owner_email: str, label: str, raw_token: str) -> str:
         token_id = f"mcp-{uuid.uuid4().hex}"
         with self._connection() as conn:

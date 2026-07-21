@@ -91,7 +91,7 @@ def require_identity(request: Request) -> Identity:
     if machine:
         return Identity(email=machine["email"], display_name=machine["display_name"], role=machine["role"], auth_kind="mcp-token")
     session = decode_session(token, settings)
-    if session:
+    if session and store.member_is_allowed(email=session.email, configured_emails=settings.admin_emails | settings.allowed_emails):
         return session
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="The org.system credential is invalid or expired.")
 

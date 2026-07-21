@@ -77,7 +77,7 @@ class CompleteLoopTest(unittest.TestCase):
         llm = LLMClient(Settings(
             database_url=f"sqlite:///{Path(self.temporary_directory.name) / 'unused.sqlite3'}",
             auth_mode="demo", google_client_id="", google_workspace_domain="",
-            admin_emails=frozenset(), session_secret="", public_url="http://127.0.0.1:8000",
+            admin_emails=frozenset(), allowed_emails=frozenset(), session_secret="", public_url="http://127.0.0.1:8000",
             allowed_origins=("http://127.0.0.1:8000",), llm_mode="mock",
         ))
         result = distill(

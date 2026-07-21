@@ -22,6 +22,7 @@ class Settings:
     google_client_id: str
     google_workspace_domain: str
     admin_emails: frozenset[str]
+    allowed_emails: frozenset[str]
     session_secret: str
     public_url: str
     allowed_origins: tuple[str, ...]
@@ -62,6 +63,7 @@ def get_settings() -> Settings:
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
         google_workspace_domain=os.getenv("GOOGLE_WORKSPACE_DOMAIN", "").lower().lstrip("@"),
         admin_emails=_csv("ORG_SYSTEM_ADMIN_EMAILS"),
+        allowed_emails=_csv("ORG_SYSTEM_ALLOWED_EMAILS"),
         session_secret=os.getenv("SESSION_SECRET", ""),
         public_url=public_url,
         allowed_origins=allowed_origins,
