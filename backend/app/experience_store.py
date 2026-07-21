@@ -357,12 +357,41 @@ class ExperienceStore:
         for item in items:
             for tag in item.get("tags", []):
                 knowledge[tag][actor_name(item)] += 1
+        with self._connection() as conn:
+            usage_rows = conn.execute(text(
+                """SELECT e.id AS experience_id, e.payload, u.consumer, u.served_at
+                   FROM usage_events u JOIN experiences e ON e.id = u.experience_id
+                   ORDER BY u.served_at ASC"""
+            )).mappings().all()
+        inheritance_links: list[dict[str, Any]] = []
+        for row in usage_rows:
+            item = json.loads(row["payload"])
+            raw_consumer = str(row["consumer"])
+            consumer_name = raw_consumer.split("@", 1)[0].replace(".", " ").replace("_", " ").title()
+            evidence = item.get("domain_extension", {}).get("resource_evidence", {})
+            value = (
+                f"{float(evidence['gpu_hours']):g} GPUh avoided"
+                if evidence.get("gpu_hours") is not None and item.get("outcome", {}).get("status") == "failure"
+                else f"{float(evidence['time_saved_minutes']):g} build min saved"
+                if evidence.get("time_saved_minutes") is not None
+                else "verified reuse"
+            )
+            inheritance_links.append({
+                "source": actor_name(item),
+                "consumer": consumer_name,
+                "experience_id": row["experience_id"],
+                "experience": task_goal(item),
+                "outcome": item.get("outcome", {}).get("status", "unknown"),
+                "value": value,
+                "served_at": row["served_at"],
+            })
         return {
             "experiences": items,
             "who_knows_what": [
                 {"topic": tag, "contributors": [{"actor": actor, "count": count} for actor, count in owners.most_common()]}
                 for tag, owners in sorted(knowledge.items())
             ],
+            "inheritance_links": inheritance_links,
         }
 
     def admin_dashboard(self) -> dict[str, Any]:
@@ -418,6 +447,7 @@ class ExperienceStore:
         items = self.list_experiences()
         reuse_events = sum(item.get("usage", {}).get("times_served", 0) for item in items)
         avoided_gpu_hours = 0.0
+        build_minutes_saved = 0.0
         intercepted = 0
         for item in items:
             uses = item.get("usage", {}).get("times_served", 0)
@@ -425,12 +455,15 @@ class ExperienceStore:
             if uses and evidence.get("gpu_hours") is not None and item.get("outcome", {}).get("status") == "failure":
                 avoided_gpu_hours += float(evidence["gpu_hours"]) * uses
                 intercepted += uses
+            if uses and evidence.get("time_saved_minutes") is not None and item.get("outcome", {}).get("status") == "success":
+                build_minutes_saved += float(evidence["time_saved_minutes"]) * uses
         return {
             "verified_experiences": sum(item["status"] == "verified" for item in items),
             "reuse_events": reuse_events,
             "duplicate_jobs_intercepted": intercepted,
             "gpu_hours_avoided": round(avoided_gpu_hours, 1),
-            "method": "Sum of recorded reuse events × verified resource evidence; demo fixtures are labelled.",
+            "build_minutes_saved": round(build_minutes_saved, 1),
+            "method": "Recorded reuse events × verified resource evidence; demo fixtures are labelled.",
         }
 
     def reset_demo(self) -> None:

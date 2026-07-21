@@ -5,4 +5,4 @@ httpx==0.28.1
 SQLAlchemy==2.0.43
 psycopg[binary]==3.2.10
 google-auth==2.40.3
-mcp==1.12.3
+mcp==1.26.0

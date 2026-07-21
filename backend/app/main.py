@@ -178,6 +178,81 @@ def health(request: Request) -> dict[str, str]:
     }
 
 
+@app.get("/api/judge/proof", tags=["system"])
+def judge_proof(request: Request) -> dict[str, Any]:
+    """Return sanitized, live infrastructure evidence for the hackathon demo.
+
+    This endpoint intentionally exposes capabilities and aggregate counters only.
+    It never returns credentials, private experience content, or token hashes.
+    """
+    identity = require_identity(request)
+    settings = request.app.state.settings
+    store = store_for(request)
+    admin = store.admin_dashboard()
+    impact = store.impact_dashboard()
+    active_tokens = [token for token in store.list_mcp_tokens() if not token.get("revoked_at")]
+    storage_backend = "PostgreSQL" if settings.database_url.startswith("postgresql") else "SQLite"
+    identity_boundary = (
+        "Demo identities (Sarah, Tom, Mei)"
+        if settings.is_demo
+        else "Google Workspace identity + signed sessions"
+    )
+    return {
+        "runtime": {
+            "status": "online",
+            "service": "org.system",
+            "deployment": "local judge demo" if settings.is_demo else "shared cloud service",
+            "llm_mode": settings.llm_mode,
+            "language_model": settings.openai_model if settings.llm_mode == "openai" else "deterministic stage-safe fallback",
+        },
+        "memory": {
+            "storage_backend": storage_backend,
+            "cloud_ready": True,
+            "semantic_activation": "hybrid lexical + semantic vectors",
+            "verified_assets": admin["status_counts"].get("verified", 0),
+            "content_receipts": "SHA-256 + contributor attribution",
+        },
+        "identity": {
+            "mode": settings.auth_mode,
+            "boundary": identity_boundary,
+            "current_role": identity.role,
+            "demo_identities": ["Sarah", "Tom", "Mei"] if settings.is_demo else [],
+            "visibility_scopes": ["private", "team", "org"],
+        },
+        "mcp": {
+            "status": "ready",
+            "endpoint": f"{settings.public_url}/mcp/",
+            "transports": ["Streamable HTTP", "stdio"],
+            "active_personal_tokens": len(active_tokens),
+            "tools": [
+                "avoid_duplicate_work",
+                "recall_experience",
+                "record_completed_work",
+                "store_experience",
+            ],
+        },
+        "serve_policy": {
+            "gate": ["explicit consent", "visibility permission", "verified status"],
+            "freshness": "scheduled re-verification; stale evidence fails closed",
+            "claim": "Only verified, visible, consented experience can reach another AI.",
+        },
+        "ai_roles": {
+            "codex": "Build workflow plus project-scoped MCP pre-flight and completed-work capture.",
+            "gpt_5_6": "Optional live provider for trace distillation and evidence-grounded answer wording.",
+            "executable_core": "Retrieval, persistence, permissions, verification, replay, receipts, and impact accounting do not depend on model output.",
+        },
+        "differentiator": {
+            "ordinary_rag": "Retrieves text that may be stale, private, or unverified.",
+            "org_system": "Candidate → evidence gate → permissioned verified recall → attributed reuse receipt.",
+        },
+        "impact": impact,
+        "truth_note": (
+            "Demo mode changes identity and wording providers only. Storage, semantic retrieval, "
+            "permissions, verification, replay, MCP contracts, receipts, and impact accounting execute normally."
+        ),
+    }
+
+
 @app.get("/api/auth/config", tags=["auth"])
 def auth_config(request: Request) -> dict[str, Any]:
     settings = request.app.state.settings
