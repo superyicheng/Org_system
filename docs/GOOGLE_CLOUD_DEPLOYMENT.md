@@ -75,7 +75,7 @@ gcloud run deploy "$SERVICE" \
   --service-account "$RUNTIME_SA" \
   --add-cloudsql-instances "$INSTANCE_CONNECTION_NAME" \
   --set-secrets "DATABASE_URL=org-system-database-url:latest,SESSION_SECRET=org-system-session-secret:latest" \
-  --set-env-vars "AUTH_MODE=google,GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID},GOOGLE_WORKSPACE_DOMAIN=${WORKSPACE_DOMAIN},ORG_SYSTEM_ADMIN_EMAILS=${ADMIN_EMAIL},PUBLIC_URL=https://bootstrap.invalid,ALLOWED_ORIGINS=https://bootstrap.invalid,ORG_SYSTEM_LLM_MODE=mock"
+  --set-env-vars "AUTH_MODE=google,GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID},GOOGLE_WORKSPACE_DOMAIN=${WORKSPACE_DOMAIN},ORG_SYSTEM_ADMIN_EMAILS=${ADMIN_EMAIL},ORG_SYSTEM_ALLOWED_EMAILS=${ADMIN_EMAIL},PUBLIC_URL=https://bootstrap.invalid,ALLOWED_ORIGINS=https://bootstrap.invalid,ORG_SYSTEM_LLM_MODE=mock"
 
 export PUBLIC_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 echo "$PUBLIC_URL"
@@ -98,6 +98,8 @@ For a custom domain, use that exact HTTPS origin in both the OAuth settings and 
 3. Confirm the configured admin can see **Trust center**, and a regular employee cannot.
 4. Click **Connect Codex**, create a personal connection, and follow [Codex employee setup](CODEX_EMPLOYEE_SETUP.md) from a separate laptop.
 5. Revoke that test connection in the same dialog and confirm Codex's next request fails with `401`.
+
+The configured admin is the initial allowlisted user. In **Trust center**, the admin can add or remove employee Google emails; a removed employee’s browser session and personal MCP token stop working immediately. The Trust center also contains the live PostgreSQL-backed system, team, impact, and evidence statistics.
 
 The service creates its tables on first connection and seeds the transparent award fixtures only when the database is empty. Use a dedicated empty production database if you do not want those fixtures present.
 

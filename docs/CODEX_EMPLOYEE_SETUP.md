@@ -33,4 +33,6 @@ approval_mode = "writes"
 
 5. Restart Codex. It can call `avoid_duplicate_work` before costly work and `record_completed_work` after evidence-backed work completes. In the shared service, completed work is held as a candidate until an administrator verifies the evidence in Trust center; Codex never makes a teammate-visible result by itself.
 
+The **Connect Codex** dialog can also download this setup as a text file. The endpoint uses standard Streamable HTTP MCP, so another MCP-compatible AI client can use the same URL and bearer token; only its client-specific configuration syntax changes.
+
 Each token represents one laptop and one Google identity. To retire a laptop, open **Connect Codex**, press **Revoke** beside that device, then remove the token and MCP configuration from the laptop. Revocation takes effect on the next request.

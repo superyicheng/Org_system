@@ -22,7 +22,7 @@ The winning demo story is concrete: Sarah records that embedding 8 TB of Kuberne
 
 ## Shared cloud system (Google Cloud)
 
-For real employee use, deploy the FastAPI service to **Cloud Run** and use **Cloud SQL for PostgreSQL** as the shared store. Google Identity signs employees into the web app; each employee then creates a personal, revocable bearer token for Codex's authenticated Streamable HTTP MCP connection. Their laptops do not run a database or expose any service.
+For real employee use, deploy the FastAPI service to **Cloud Run** and use **Cloud SQL for PostgreSQL** as the shared store. Google Identity signs employees into the web app; the boss allowlists employee addresses in Trust center, and each employee downloads a personal, revocable bearer-token setup for Codex or another Streamable HTTP MCP client. Their laptops do not run a database or expose any service.
 
 Start with [Google Cloud production deployment](docs/GOOGLE_CLOUD_DEPLOYMENT.md). It identifies the one Google Cloud project, OAuth web client, Cloud SQL instance, secrets, and Cloud Run service to create. Then use [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md) on every laptop.
 
