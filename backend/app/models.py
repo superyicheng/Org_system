@@ -68,11 +68,17 @@ class DistillRequest(BaseModel):
     consent: bool = True
 
 
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class AssistRequest(BaseModel):
     role: Literal["auto", "veteran", "newcomer"] = "auto"
     message: str = Field(min_length=10, max_length=12000)
     title: str = Field(default="Team Member", min_length=1, max_length=120)
     record_usage: bool = True
+    history: list[ChatTurn] = Field(default_factory=list, max_length=12)
 
 
 class GoogleCredentialRequest(BaseModel):

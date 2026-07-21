@@ -30,7 +30,7 @@ class Settings:
     memory_engine: str = "SYNAPSE-compatible PostgreSQL/SQLite graph with semantic vectors"
     llm_mode: str = "mock"
     openai_api_key: str = ""
-    openai_model: str = "gpt-5.6-luna"
+    openai_model: str = "gpt-5.6-terra"
     reverify_interval_seconds: int = 3600
 
     @property
@@ -77,7 +77,7 @@ def get_settings() -> Settings:
         allowed_origins=allowed_origins,
         llm_mode=llm_mode,
         openai_api_key=api_key,
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
         reverify_interval_seconds=max(60, int(os.getenv("ORG_SYSTEM_REVERIFY_SECONDS", "3600"))),
     )
     if not settings.is_demo and (not settings.google_client_id or len(settings.session_secret) < 32):

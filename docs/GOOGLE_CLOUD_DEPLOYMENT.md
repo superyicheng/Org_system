@@ -109,3 +109,30 @@ The service creates its tables on first connection and seeds the transparent awa
 - Browser sessions expire after eight hours. Codex tokens remain valid until a user or admin revokes them.
 - Use Secret Manager versions to rotate the database URL and session secret, then deploy a new Cloud Run revision.
 - Set `OPENAI_API_KEY` as a Cloud Run Secret only if you want live model wording. Retrieval, permissions, persistence, receipts, and verification work without it.
+
+## Enable live GPT answers on Cloud Run
+
+Do not put an OpenAI API key in source code, `.env.example`, a command-line argument, or GitHub. Create the secret interactively so the key is read from standard input:
+
+```bash
+gcloud secrets create org-system-openai-api-key --replication-policy=automatic --data-file=-
+```
+
+Paste the key, then send EOF (`Ctrl+D` on macOS/Linux; in a compatible Windows terminal, use the terminal's EOF shortcut). Grant the Cloud Run runtime service account access:
+
+```bash
+gcloud secrets add-iam-policy-binding org-system-openai-api-key \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Attach the secret and enable the Responses API route on the private service:
+
+```bash
+gcloud run services update org-system \
+  --region us-east4 \
+  --set-secrets OPENAI_API_KEY=org-system-openai-api-key:latest \
+  --update-env-vars ORG_SYSTEM_LLM_MODE=openai,OPENAI_MODEL=gpt-5.6-terra
+```
+
+After the revision becomes ready, sign in and check `GET /api/ai/status`. It should report `configured: true`, while never returning the key. In the product UI, a successful request displays the actual `openai:gpt-5.6-terra` provider; a provider error remains visibly labeled as the safe fallback.

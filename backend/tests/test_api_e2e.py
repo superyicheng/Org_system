@@ -16,6 +16,26 @@ class APILoopTest(unittest.TestCase):
                 health = client.get("/health")
                 self.assertEqual(health.status_code, 200)
                 self.assertEqual(health.json()["llm_mode"], "mock")
+                self.assertFalse(health.json()["llm_live"])
+                self.assertEqual(health.json()["llm_model"], "gpt-5.6-terra")
+
+                ai_status = client.get("/api/ai/status")
+                self.assertEqual(ai_status.status_code, 200)
+                self.assertFalse(ai_status.json()["configured"])
+                self.assertEqual(ai_status.json()["general_questions"], "needs OPENAI_API_KEY")
+
+                general = client.post("/api/assist", json={
+                    "role": "auto",
+                    "title": "Sarah",
+                    "message": "What is the difference between TCP and UDP?",
+                    "history": [{"role": "user", "content": "I am learning computer networking."}],
+                })
+                self.assertEqual(general.status_code, 200)
+                self.assertEqual(general.json()["intent"], "general")
+                self.assertFalse(general.json()["hit"])
+                self.assertFalse(general.json()["general_questions_live"])
+                self.assertEqual(general.json()["model"], "gpt-5.6-terra")
+                self.assertIn("OPENAI_API_KEY", general.json()["answer"])
 
                 proof = client.get("/api/judge/proof")
                 self.assertEqual(proof.status_code, 200)

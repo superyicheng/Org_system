@@ -128,7 +128,7 @@ def domain_extension_for(distilled: dict[str, Any], **extra: Any) -> dict[str, A
 
 
 def infer_work_intent(message: str) -> str:
-    """Infer capture vs pre-flight from the work statement, never from a person's name."""
+    """Infer capture, pre-flight, or general chat from content, never from a person's name."""
     lowered = message.lower()
     completed_signals = (
         "completed", "finished", "we ran", "we embedded", "we tested", "we tried",
@@ -141,7 +141,11 @@ def infer_work_intent(message: str) -> str:
     )
     completed_score = sum(signal in lowered for signal in completed_signals)
     proposal_score = sum(signal in lowered for signal in proposal_signals)
-    return "capture" if completed_score >= 2 and completed_score > proposal_score else "recall"
+    if completed_score >= 2 and completed_score > proposal_score:
+        return "capture"
+    if proposal_score:
+        return "recall"
+    return "general"
 
 
 def grounded_reuse_answer(receipt: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -184,13 +188,31 @@ def frontend() -> FileResponse:
 
 
 @app.get("/health", tags=["system"])
-def health(request: Request) -> dict[str, str]:
+def health(request: Request) -> dict[str, Any]:
+    llm: LLMClient = request.app.state.llm
     return {
         "status": "ok",
         "service": "org.system",
         "memory_engine": request.app.state.settings.memory_engine,
         "llm_mode": request.app.state.settings.llm_mode,
+        "llm_live": llm.live,
+        "llm_model": llm.model,
         "auth_mode": request.app.state.settings.auth_mode,
+    }
+
+
+@app.get("/api/ai/status", tags=["system"])
+def ai_status(request: Request) -> dict[str, Any]:
+    """Expose AI readiness without ever returning the API key."""
+    require_identity(request)
+    llm: LLMClient = request.app.state.llm
+    return {
+        "configured": llm.live,
+        "mode": llm.mode,
+        "model": llm.model,
+        "last_provider": llm.last_provider,
+        "general_questions": "live" if llm.live else "needs OPENAI_API_KEY",
+        "memory_core": "online",
     }
 
 
@@ -511,6 +533,35 @@ def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
     consumer = actor_for(identity, payload.title, request)["id"]
     receipts = store.recall(query=payload.message, consumer=consumer, limit=3, record_usage=payload.record_usage, personal_only=request.app.state.settings.is_public_trial)
     if not receipts:
+        if intent == "general":
+            recent = "\n".join(
+                f"{turn.role}: {turn.content}" for turn in payload.history[-8:]
+            )
+            conversation = f"Recent conversation:\n{recent}\n\nCurrent user question:\n{payload.message}" if recent else payload.message
+            fallback = (
+                "General AI answers are not enabled in this runtime yet. Configure OPENAI_API_KEY and set "
+                "ORG_SYSTEM_LLM_MODE=openai; organizational memory, permissions, and MCP remain online."
+            )
+            answer = llm.generate(
+                instructions=(
+                    "You are org.system's general AI assistant. Answer the user's question directly and helpfully in the user's language. "
+                    "Use recent conversation only when relevant. Do not invent organizational memory or claim that a team record matched. "
+                    "Be concise by default, but include concrete steps or examples when useful."
+                ),
+                prompt=conversation,
+                fallback=fallback,
+            )
+            provider_live = llm.last_provider.startswith("openai:")
+            return {
+                "answer": answer,
+                "intent": "general",
+                "hit": False,
+                "receipts": [],
+                "llm_mode": llm.mode,
+                "provider": llm.last_provider,
+                "model": llm.model,
+                "general_questions_live": provider_live,
+            }
         fallback = (
             "I found no verified prior team experience close enough to this proposal. You can proceed with a bounded experiment: "
             "record the current baseline, define a measurable success threshold, limit the first run's cost, and keep tests as a safety gate. "

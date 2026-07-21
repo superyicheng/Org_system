@@ -1,130 +1,282 @@
 # org.system
 
-org.system is a verified organizational memory layer for AI work. It captures completed work—including expensive failures—distills it into a reusable experience, verifies the evidence, and intercepts a teammate's similar proposal before the team spends the same resources twice.
+**Verified organizational memory for AI work.**
 
-**OpenAI Build Week track: Developer Tools.** This is infrastructure for AI coding and operations workflows, not a standalone knowledge-base chatbot.
+org.system gives every employee's AI access to the lessons the team has already paid to learn. Before an expensive task begins, the AI checks verified organizational memory for similar work. After a task finishes, it can capture a redacted, evidence-backed lesson for verification and future reuse.
 
-The winning demo story is concrete: Sarah records that embedding 8 TB of Kubernetes logs consumed 148 GPU-hours for only a 3% quality gain. Later, Tom proposes the same full-scale job. org.system retrieves Sarah's verified negative result, generates an evidence-grounded answer, and recommends a 5% measured pilot before any expensive execution begins. Mei remains available as a third teammate to demonstrate that the memory is shared across the group.
+This is not a shared chat history and not ordinary RAG. Similarity finds a candidate; **consent, visibility, verification, and freshness decide whether another employee's AI may use it**.
 
-## What is real
+```text
+Employee → AI client → org.system MCP → verified team memory → safer next action
+                              ↑                         │
+                              └── completed lesson ────┘
+```
 
-- Natural-language input from Tom, Sarah, and Mei; there are no scenario buttons.
-- Automatic trace distillation through a switchable LLM client.
-- Verified-only, consent-aware, visibility-aware hybrid retrieval (lexical + local semantic vectors).
-- JSON Schema validation and a SHA-256 content receipt for every stored asset.
-- Failed experiments can be VERIFIED negative results when their evidence is confirmed.
-- Fail-closed metric verification: a missing metric cannot silently pass.
-- Independent evidence replay in a separate Python process.
-- Attributed reuse receipts and an avoided-resource impact signal.
-- A project-scoped Codex MCP configuration plus `AGENTS.md` pre-flight/capture rules.
-- A task-boundary gateway that automatically distills completed, consented traces.
-- Provider-backed AI judging with an explicit deterministic fallback receipt.
-- User attribution, team discovery, trust-center, and measured-impact views.
-- Explicit pre-flight decisions—block, reuse, or clear novelty—plus a live Sarah → Tom → Mei inheritance graph.
-- A live **Judge proof** view that exposes the running identity, MCP, memory, permission, model-boundary, and impact evidence without leaking private content or credentials.
-- Twelve automated tests covering the full lifecycle, semantic recall, local demo flow, cloud permissions, public-visitor isolation, replay, MCP, and API flow.
+**OpenAI Build Week track:** Developer Tools
 
-## Shared cloud system (Google Cloud)
+## What problem does it solve?
 
-For real employee use, deploy the FastAPI service to **Cloud Run** and use **Cloud SQL for PostgreSQL** as the shared store. Google Identity signs employees into the web app; the boss allowlists employee addresses in Trust center, and each employee downloads a personal, revocable bearer-token setup for Codex or another Streamable HTTP MCP client. Their laptops do not run a database or expose any service.
+Important team knowledge often disappears into private AI sessions and individual laptops. A new employee can unknowingly repeat an experiment that a teammate already ran, including expensive failures.
 
-Start with [Google Cloud production deployment](docs/GOOGLE_CLOUD_DEPLOYMENT.md). It identifies the one Google Cloud project, OAuth web client, Cloud SQL instance, secrets, and Cloud Run service to create. Then use [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md) on every laptop.
+The demo shows the complete loop:
 
-## Public personal-memory trial
+1. Sarah records that embedding 8 TB of Kubernetes logs consumed 148 GPU-hours for only a 3% quality gain.
+2. Tom later proposes the same full-scale direction using different words.
+3. Before execution, Tom's AI retrieves Sarah's verified negative result, attributes it to Sarah, blocks the full-scale run, and recommends a measured 5% pilot.
+4. Tom runs a genuinely new CI experiment and records the successful result.
+5. Mei's AI later reuses Tom's verified method instead of rebuilding it from scratch.
 
-The separately deployed [public trial](docs/PUBLIC_DEMO.md) accepts any Google account after the OAuth app is published. It has a different Cloud SQL database and runtime identity from the private organization service. Every visitor receives a private persistent memory and personal revocable MCP token; public-trial records are never visible to another visitor or to the organization service.
+The team stops paying for the same lesson twice without preventing novel work.
 
-## Demo-safe boundary
+## Start using org.system as a team
 
-- With `OPENAI_API_KEY`, language distillation and answer generation use the OpenAI Responses API.
-- Without a key, the app uses deterministic English copy. Retrieval, storage, verification, replay, and usage tracking remain real.
-- The bundled replay worker is a real executable cost/quality workflow for the hackathon story. It is not an iDynoMiCS binary or a production GPU scheduler.
-- No Docker sandbox and no arbitrary browser-supplied command execution are used.
+The private organization service is already deployed at:
 
-## Fastest start: two terminal commands
+**[https://org-system-6hqysxhb3q-uk.a.run.app](https://org-system-6hqysxhb3q-uk.a.run.app)**
+
+It runs on Google Cloud Run and uses a shared Cloud SQL PostgreSQL database. Employees do not run a database or expose a service from their laptops.
+
+### 1. The team administrator creates the workspace boundary
+
+1. Open the hosted website.
+2. Click **Sign in with Google** using the organization administrator account.
+3. Open **Trust center**.
+4. Add the Google email addresses of employees who may join the organization.
+
+The administrator can later remove an employee, review candidate experiences, verify evidence, monitor stale knowledge, and revoke MCP connections. Removing an employee invalidates both browser access and personal MCP tokens.
+
+### 2. Each employee signs in to shared memory
+
+1. Open the same hosted website.
+2. Click **Sign in with Google** using an allowlisted account.
+3. The employee now sees the organization's PostgreSQL-backed memory through their own identity and permission boundary.
+
+Employees share one organizational database, but they do not automatically see every record. Recall still filters by consent, `private` / `team` / `org` visibility, verification status, and freshness.
+
+### 3. Connect Codex or another MCP-compatible AI client
+
+In the signed-in website:
+
+1. Click **Connect Codex**.
+2. Enter a label for the laptop.
+3. Click **Create personal connection**.
+4. Copy or download the setup immediately. The raw token is shown once; org.system stores only its hash.
+
+Store the personal token as an environment variable. Never put it in a repository.
+
+Windows PowerShell:
+
+```powershell
+setx ORG_SYSTEM_MCP_TOKEN "orgmcp_replace_with_your_personal_token"
+$env:ORG_SYSTEM_MCP_TOKEN = "orgmcp_replace_with_your_personal_token"
+```
+
+macOS / Linux:
+
+```bash
+export ORG_SYSTEM_MCP_TOKEN='orgmcp_replace_with_your_personal_token'
+```
+
+Add the following to the employee's personal `~/.codex/config.toml`. The trailing slash in `/mcp/` is intentional.
+
+```toml
+[mcp_servers.org_system]
+url = "https://org-system-6hqysxhb3q-uk.a.run.app/mcp/"
+bearer_token_env_var = "ORG_SYSTEM_MCP_TOKEN"
+required = true
+enabled_tools = ["avoid_duplicate_work", "recall_experience", "record_completed_work"]
+default_tools_approval_mode = "writes"
+
+[mcp_servers.org_system.tools.record_completed_work]
+approval_mode = "writes"
+```
+
+Restart Codex after saving. Confirm the connection with:
+
+```powershell
+codex mcp list
+```
+
+The server uses standard Streamable HTTP MCP. Another MCP-compatible AI client can use the same endpoint and personal bearer token; only that client's configuration syntax changes.
+
+### 4. Add the team-memory policy to the AI workflow
+
+MCP provides the tools; the following project instruction makes their use consistent. This repository already includes it in `AGENTS.md`. For another repository, add an equivalent instruction to that project's AI rules:
+
+```text
+Before resource-heavy, novel, debugging, migration, deployment, or incident work,
+call org_system.avoid_duplicate_work with the natural-language proposal.
+
+After objectively completed work, and only with the user's consent, call
+org_system.record_completed_work with a redacted trace summary, reusable lesson,
+and evidence status. Never capture secrets, credentials, personal data, raw private
+files, or unredacted production logs.
+```
+
+### 5. Use AI normally
+
+Once connected, the employee continues working in Codex instead of visiting a separate knowledge-search page for every task.
+
+**Before meaningful work:**
+
+- Codex calls `avoid_duplicate_work` with the planned task.
+- org.system performs hybrid lexical and semantic recall.
+- If there is a permitted verified match, Codex receives an attribution receipt, prior evidence, and a reusable next action.
+- If there is no match, org.system clears the novelty and recommends a bounded experiment rather than blocking innovation.
+
+**After completed work:**
+
+- With employee consent, Codex calls `record_completed_work` at the task boundary.
+- org.system stores a redacted task summary, outcome, reusable lesson, evidence signal, contributor identity, and visibility scope.
+- In the shared organization service, the new record remains a **candidate** until an administrator verifies it in **Trust center**.
+- Only then can it become teammate-visible verified memory.
+
+This is the practical loop:
+
+```text
+Plan → pre-flight recall → perform or adapt work → capture result → verify → team reuse
+```
+
+## What “automatic capture” means
+
+org.system does **not** indiscriminately scrape entire chats or silently upload every tool call. The AI uses MCP tools at meaningful work boundaries:
+
+- pre-flight recall before costly or risky work;
+- consented capture after an objective success or failure;
+- a redacted summary rather than raw private context;
+- administrator verification before organization-wide reuse.
+
+This preserves the low-friction experience of automatic organizational learning without turning the system into employee surveillance.
+
+## What is stored in organizational memory?
+
+Each experience contains:
+
+- the task goal and domain;
+- a redacted trace summary;
+- what worked or failed;
+- the reusable next action;
+- structured evidence and outcome signals;
+- contributor attribution and provenance;
+- consent and visibility scope;
+- verification verdict and re-verification cadence;
+- a SHA-256 content receipt;
+- attributed reuse events and measured impact.
+
+Candidates, stale records, private records, and non-consented records never appear as verified team guidance.
+
+## Private organization service versus public trial
+
+These are deliberately separate deployments:
+
+| Surface | URL | Memory model |
+|---|---|---|
+| Private organization | [org-system-6hqysxhb3q-uk.a.run.app](https://org-system-6hqysxhb3q-uk.a.run.app) | Allowlisted employees share permissioned organizational memory |
+| Public trial | [org-system-demo-6hqysxhb3q-uk.a.run.app](https://org-system-demo-6hqysxhb3q-uk.a.run.app) | Any Google user gets an isolated private personal memory |
+
+The public trial has a separate database identity and cannot read the private organization's records. See [Live service](docs/LIVE_SERVICE.md) and [Public trial](docs/PUBLIC_DEMO.md).
+
+## What is real?
+
+- Google identity, allowlisted organization membership, and signed browser sessions.
+- Shared PostgreSQL persistence in the private Cloud Run deployment.
+- Personal, revocable, per-laptop MCP bearer tokens stored as hashes.
+- Authenticated Streamable HTTP MCP plus a local stdio fallback.
+- Natural-language work intent and completed-result detection.
+- Consent-, visibility-, verification-, and freshness-aware retrieval.
+- Hybrid lexical and local semantic vectors.
+- JSON Schema validation and SHA-256 receipts.
+- Verified negative results, attributed reuse, and measured avoided resources.
+- Fail-closed metric verification and independent subprocess replay.
+- User attribution, team inheritance, Trust center, impact, and Judge proof views.
+- Automated lifecycle, permissions, public-isolation, MCP, replay, and API tests.
+
+## Model and demo-safe boundary
+
+- org.system checks permitted, verified organizational memory before generating an answer.
+- If a work proposal has no match, it recommends a bounded experiment rather than presenting generic model text as team evidence.
+- If the input is a general question and no team memory is used, the backend sends it to the configured OpenAI Responses API model and preserves up to 12 recent conversation turns.
+- Completed work still enters the evidence, consent, verification, and memory workflow.
+- The UI shows the actual provider used for each general answer. A configured key alone is never displayed as proof that a particular request reached OpenAI.
+- Without a key, deterministic English wording keeps the demo reliable.
+- Retrieval, persistence, permissions, verification, replay, receipts, MCP contracts, and impact accounting remain executable in both modes.
+- The bundled replay worker proves the verifier contract; it is not a production GPU scheduler.
+- The application never executes arbitrary browser-supplied shell commands.
+
+## Run locally
 
 Requirements: Python 3.11 or newer.
 
 ```powershell
-cd C:\Users\BitAltas\Documents\GitHub\Org_system\backend
+cd backend
 python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000). API documentation is at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-You can also double-click `START_DEMO.cmd`. Double-click `STOP_DEMO.cmd` when finished. `org.system-demo.html` opens the running demo directly.
+You can also double-click `START_DEMO.cmd`; use `STOP_DEMO.cmd` when finished.
 
-## Offline/mock mode
-
-Mock mode is automatic when no API key is present. To make it explicit:
+### Explicit offline mode
 
 ```powershell
 $env:ORG_SYSTEM_LLM_MODE="mock"
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-This is the recommended on-stage configuration because the full product loop still runs without network risk.
+### Enable live GPT answers locally
 
-## Live AI mode
+Keep API keys in environment variables or Secret Manager, never in HTML or Git.
 
-Set the key only in the terminal session; never paste it into the HTML or commit it.
+From the repository root, the easiest option is:
 
 ```powershell
-$env:OPENAI_API_KEY="YOUR_KEY"
+powershell -ExecutionPolicy Bypass -File .\START_WITH_GPT.ps1
+```
+
+The script asks for the API key with hidden input, keeps it only in the backend process environment, selects `gpt-5.6-terra`, and starts the site at [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+The equivalent manual setup is:
+
+```powershell
+# Enter the key privately so it is not saved in shell history.
+$secureKey = Read-Host "OpenAI API key" -AsSecureString
+$keyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+$env:OPENAI_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPointer)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer)
+Remove-Variable secureKey, keyPointer
+
 $env:ORG_SYSTEM_LLM_MODE="openai"
-$env:OPENAI_MODEL="gpt-5.6-luna"
+$env:OPENAI_MODEL="gpt-5.6-terra"
+cd backend
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-The header badge shows `AI · openai` when live mode is active. If the provider times out, the same request automatically falls back to deterministic copy without breaking the demo.
+Open the website and confirm that the badge says `Live GPT · gpt-5.6-terra`. Ask a general question such as `Explain TCP vs UDP with one practical example.` The right-hand receipt must show `GENERAL GPT ANSWER`, an `openai:` provider, and `Memory core · online · checked first`.
 
-## The 2-minute live path
+The environment variables apply only to the backend started from that PowerShell window. To enable GPT on the hosted Cloud Run website, follow the Secret Manager steps in [Google Cloud deployment](docs/GOOGLE_CLOUD_DEPLOYMENT.md#enable-live-gpt-answers-on-cloud-run).
 
-1. Select **Sarah** and type:
+## Run the award demo
 
-   `We embedded 8 TB of Kubernetes logs for semantic incident search. The completed run consumed 148 GPU-hours but improved accuracy by only 3%. The better path is to sample 5%, cluster recurring log fingerprints, and set a go/no-go quality gate before scaling.`
+The exact Sarah → Tom → replay → novel experiment → Tom → Mei recording flow is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
-2. Watch org.system type its answer and store a verified negative result.
-3. Switch to **Tom** and type:
+During the final section, open **Judge proof** to show live identity, MCP, storage, permission, model-boundary, and impact evidence. Then open **Team map** to show the real Sarah → Tom and Tom → Mei inheritance links.
 
-   `I want to embed 30 days of Kubernetes logs for semantic incident search. Can I launch the full 8 TB GPU job?`
+## MCP tools
 
-4. Watch the verified receipt appear and the avoided impact change to **148 GPUh**.
-5. Click **Replay evidence in isolated process**. The backend launches the bundled worker, extracts all metrics, and checks them against the stored receipt.
+The server exposes four tools. The recommended Codex configuration enables the three needed for normal employee use:
 
-The exact under-three-minute recording timeline—every click, prompt, and spoken line—is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+- `avoid_duplicate_work` — check a proposal before meaningful resource spend.
+- `recall_experience` — retrieve verified, visible experience with receipts.
+- `record_completed_work` — capture an evidence-backed completed lesson for verification.
+- `store_experience` — low-level candidate capture for integrations and administration.
 
-During the final 40 seconds, open **Judge proof**. It is populated from `GET /api/judge/proof`, so the architecture, permissions, MCP tools, storage mode, model boundary, and impact totals are live runtime evidence rather than presentation copy.
+See [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md) for token lifecycle and revocation.
 
-## Connect org.system to Codex through MCP
-
-The website does not require MCP. In the shared Cloud Run system, it is how the same organizational memory reaches Codex on each employee laptop.
-
-For the cloud system, use **Connect Codex** in the signed-in web app. It displays a one-time personal token and the exact remote MCP configuration. Follow [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md); do not commit a token. The checked-in `.codex/config.toml` is deliberately disabled template text only.
-
-For the local award demo only, `AGENTS.md` and `backend/mcp_stdio.py` remain available as a stdio MCP fallback:
-
-From a terminal where `codex` and Python are available:
+## Verify the repository
 
 ```powershell
-codex mcp add org-system -- python C:\Users\BitAltas\Documents\GitHub\Org_system\backend\mcp_stdio.py
-codex mcp list
-```
-
-org.system exposes three tools:
-
-- `recall_experience` — retrieve verified visible experience with receipts.
-- `avoid_duplicate_work` — run a pre-flight check against a proposed task.
-- `store_experience` — capture an unverified candidate for later verification.
-- `record_completed_work` — capture and verify a consented, evidence-backed lesson at task completion.
-
-If `python` resolves incorrectly on Windows, replace it in the command with the full path returned by `Get-Command python` or your installed Python executable.
-
-## Verify everything
-
-```powershell
-cd C:\Users\BitAltas\Documents\GitHub\Org_system\backend
+cd backend
 python -m unittest discover -s tests -v
 ```
 
@@ -136,29 +288,30 @@ powershell -ExecutionPolicy Bypass -File ..\scripts\smoke-test.ps1
 
 ## API map
 
-- `POST /api/distill` — transcript to candidate experience.
 - `POST /api/assist` — conversational capture or pre-flight recall.
+- `GET /api/ai/status` — sanitized model readiness; never exposes the API key.
+- `POST /api/distill` — transcript to candidate experience.
 - `POST /api/capture` — explicit structured capture.
 - `POST /api/experiences/{id}/verify` — pluggable evidence verification.
-- `POST /api/experiences/{id}/replay` — safe independent workflow replay.
-- `POST /api/experiences/{id}/verify/ai` — rubric-based AI judge with provider receipt.
+- `POST /api/experiences/{id}/replay` — independent workflow replay.
 - `POST /api/recall` — verified and permitted recall with attribution.
-- `POST /api/gateway/events` — automatic connector capture boundary.
-- `POST /mcp/` — authenticated Streamable HTTP MCP endpoint (cloud).
-- `GET /api/dashboard/user/{title}`, `/team`, `/admin` — contribution, discovery, and health views.
-- `GET /api/dashboard/impact` — measured reuse and avoided-resource accounting.
-- `GET /api/judge/proof` — sanitized live architecture and capability evidence for judges.
+- `POST /api/gateway/events` — automatic connector task-boundary capture.
+- `POST /mcp/` — authenticated Streamable HTTP MCP endpoint.
+- `GET /api/dashboard/user/{title}`, `/team`, `/admin`, `/impact` — contribution, discovery, trust, and impact views.
+- `GET /api/judge/proof` — sanitized live infrastructure evidence.
 
 ## Project map
 
-- `frontend/index.html` — final English hackathon interface.
-- `backend/app/main.py` — FastAPI routes and conversational orchestration.
-- `backend/app/distiller.py` / `llm_client.py` — live AI plus deterministic fallback.
+- `frontend/index.html` — English product and hackathon demo interface.
+- `backend/app/main.py` — FastAPI routes and orchestration.
 - `backend/app/experience_store.py` — schema-validated memory, permissions, receipts, and recall.
-- `backend/app/auth.py` / `mcp_service.py` — Google identity, revocable Codex tokens, and remote MCP service.
-- `backend/app/verifiers.py` / `runners.py` — fail-closed verification and real process replay.
-- `backend/mcp_stdio.py` — Codex-compatible stdio MCP entrypoint.
-- `backend/tests/` — local-demo and cloud-mode lifecycle/integration tests.
-- `docs/BUILD_COMPLETION_REPORT.md` — design-outline completion record and honest boundaries.
+- `backend/app/auth.py` / `mcp_service.py` — Google identity, personal tokens, and remote MCP.
+- `backend/app/distiller.py` / `llm_client.py` — live language provider and deterministic fallback.
+- `backend/app/verifiers.py` / `runners.py` — fail-closed verification and subprocess replay.
+- `backend/mcp_stdio.py` — local Codex-compatible stdio MCP fallback.
+- `backend/tests/` — lifecycle and integration tests.
+- `docs/LIVE_SERVICE.md` — current private and public deployment details.
+- `docs/GOOGLE_CLOUD_DEPLOYMENT.md` — reproducible production deployment.
+- `docs/CODEX_EMPLOYEE_SETUP.md` — per-employee connection steps.
 
-The product name is `org.system`; the repository folder remains `Org_system` for compatibility with the existing workspace.
+The product name is `org.system`; the repository folder remains `Org_system` for workspace compatibility.
