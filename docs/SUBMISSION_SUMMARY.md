@@ -2,11 +2,11 @@
 
 ## Project name
 
-**Org_system — Verified Experience for Your AI Workforce**
+**org.system — Verified Memory for Your AI Workforce**
 
 ## Category
 
-**Work & Productivity**
+**Developer Tools**
 
 ## One-line description
 
@@ -18,7 +18,7 @@ When a person’s AI tool solves a hard problem, that lesson usually disappears 
 
 Every result has a receipt: source, verification verdict, freshness, visibility, and retrieval path. The system also records consumption, so the contributor receives credit and the team can see whose knowledge is actually being reused.
 
-Our first workflow is a simulation configuration where correctness is machine-checkable. The `rerun_and_compare` verifier uses tolerance-based metric comparison; the local browser demo makes its fixture status explicit. The same core supports outcome signals, CI tests, and future domain-specific verifiers.
+The primary demo preserves an expensive negative result: embedding 8 TB of Kubernetes logs consumed 148 GPU-hours for only a 3% gain. A teammate later proposes the same idea using different language. Hybrid retrieval finds the verified result before execution, returns an attributed receipt, recommends a five-percent pilot, and records the avoided cost. A second CI experiment proves the loop supports new ideas and positive results as well as failures.
 
 ## How we built it with Codex
 
@@ -28,10 +28,9 @@ Codex accelerated the transformation of the design report into a runnable vertic
 
 ## Demo instructions for judges
 
-1. Run the two commands in the README, then open `http://127.0.0.1:8000`.
-2. Click **Capture simulation trace**. The record is a candidate and is not serveable.
-3. Click **Run reproducibility check**. It becomes `REPRODUCED`/verified.
-4. Click **Recall as Tom**. Inspect Sarah’s proof receipt and switch to the dashboards.
-5. Run `python -m unittest discover -s tests -v` from `backend/` for the same core lifecycle assertion.
+1. Run the backend command in the README, then open `http://127.0.0.1:8000`.
+2. Follow the Sarah → Tom → replay → novel CI experiment → Mei path in `docs/DEMO_SCRIPT.md`.
+3. Open **Judge proof** to inspect live memory, identity, MCP, permission, and model-boundary evidence.
+4. Run `python -m unittest discover -s tests -v` from `backend/` to verify the same lifecycle without the UI.
 
 The project is local-only, free to test, and requires no account or API key.

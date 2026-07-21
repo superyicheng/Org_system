@@ -1,78 +1,117 @@
-# org.system — 2:55 complete inheritance demo
+# org.system — exact 2:58 award demo
 
-## 0:00–0:20 — Problem
+This is the recording source of truth. The product UI is English. Paste the prompts; let org.system type every response on screen. Do not use cuts that hide a failed request.
 
-“Teams are giving AI more compute, but AI has no organizational memory. A new employee can launch a resource-heavy idea that a teammate already tested and disproved. The team pays for the same lesson twice.”
+## Before recording
 
-Point to the headline and the six-stage strip.
+1. Start the backend and open `http://127.0.0.1:8000` at 100% browser zoom.
+2. Click **Reset demo**, then reload once. Confirm **Shared memory online**.
+3. Close notifications, hide bookmarks, and record at 1920×1080 or higher.
+4. Run `/status` in the Codex task and confirm the model actually used. Do not claim GPT-5.6 usage without real evidence. Insert the real `/feedback` Session ID in `docs/HACKATHON_EVIDENCE.md`.
+5. Rehearse the five pasted prompts. Keep the mouse away from important text while speaking.
 
-## 0:20–0:55 — Veteran work becomes memory
+## Exact timeline
 
-Select **Sarah**. Type:
+### 0:00–0:14 — The problem
+
+**On screen:** Start on **Live proof**. Point at the headline and the `0 GPUh` counter. Do not click yet.
+
+**Say:**
+
+> Teams are giving AI more compute, but AI has no organizational memory. A new teammate can repeat an experiment that someone already disproved, so the organization pays for the same lesson twice. org.system turns verified team experience into a pre-flight guardrail.
+
+### 0:14–0:40 — Sarah captures an expensive failure
+
+**Click:** **Reset demo**. Keep **Sarah** selected. Paste this into the message box and click **Send**:
 
 > We embedded 8 TB of Kubernetes logs for semantic incident search. The completed run consumed 148 GPU-hours but improved accuracy by only 3%. The better path is to sample 5%, cluster recurring log fingerprints, and set a go/no-go quality gate before scaling.
 
-“This is ordinary typing, not a pre-scripted scenario button. org.system distills the trace, preserves the failed outcome as valuable evidence, validates the asset schema, confirms the evidence signal, and writes a content-addressed verified experience. Sarah fills in no documentation form.”
+**Say while the answer types:**
 
-## 0:55–1:35 — New proposal is intercepted
+> Sarah simply reports completed work. There is no special capture form. org.system infers the completed outcome, extracts structured metrics and a reusable lesson, applies consent and team visibility, and stores a verified negative result. The live memory card shows the contributor, evidence method, permission scope, and resource cost.
 
-Switch to **Tom**. Type:
+### 0:40–1:10 — Tom is intercepted before execution
 
-> I want to embed 30 days of Kubernetes logs for semantic incident search. Can I launch the full 8 TB GPU job?
-
-“Before the AI executes, org.system extracts the work intent and recalls only verified, visible, consented team experience. It finds the previous experiment, gives the concrete difficulty—148 GPU-hours for 3% gain—and returns a better next move. Tom keeps the innovation, but runs it as a measured 5% pilot.”
-
-Point to **148 GPUh**, the verification receipt, origin title, verdict, and asset hash.
-
-For a stronger semantic-retrieval proof, use this paraphrase instead:
+**Click:** the person dropdown → **Tom**. Paste and click **Send**:
 
 > I want to vectorize a month of cluster diagnostics using our accelerator capacity. Should I run it at full scale?
 
-Point to the **semantic vector cosine** field in the receipt. The stored lesson and query do not need identical wording.
+**Say:**
 
-## 1:35–1:55 — Proof, not a rumor
+> Tom uses different wording, but semantic and lexical activation find Sarah’s verified result before the GPU job starts. Only consented, visible, verified memory can cross the serve gate. The decision is explicit: block the full-scale run, cite Sarah, and recommend a measured five-percent pilot. The impact counter is calculated from this recorded reuse event.
 
-Click **Replay evidence in isolated process**.
+**Point to:** **BLOCK FULL-SCALE RUN**, `148 GPUh`, Sarah under **Origin**, semantic cosine, verdict, and asset hash.
 
-“This click is not terminal animation. The backend launches a separate bundled process, reconstructs the experiment envelope, extracts every required metric, and fails closed if even one metric is missing. The receipt remains serveable only when the replay matches.”
+### 1:10–1:27 — Evidence can be challenged
 
-## 1:55–2:10 — A truly new idea is allowed
+**Click:** **Replay evidence in isolated process**.
 
-Stay on **Tom** and type:
+**Say:**
+
+> This is not a terminal animation. The backend launches a separate process, reconstructs the bounded experiment envelope, extracts every required metric, and fails closed if a metric is missing. The verified receipt survives only when the replay matches.
+
+### 1:27–1:43 — Novel work is still allowed
+
+Keep **Tom** selected. Paste and click **Send**:
 
 > I want to test content-addressed dependency caching in our CI pipeline. Has the team tried this before?
 
-“There is no verified prior data. org.system does not block novelty: it approves a bounded experiment with a baseline, measurable success threshold, cost limit, and test gate.”
+**Say:**
 
-## 2:10–2:25 — The successful follow-up becomes memory
+> No verified memory matches, so org.system explicitly clears the novelty instead of blocking innovation. It recommends a bounded experiment with a baseline, success threshold, cost limit, and test gate.
 
-Tom types:
+### 1:43–2:01 — Tom contributes the new success
+
+Paste and click **Send**:
 
 > We completed the CI cache experiment. Content-addressed dependency layer caching improved build time from 18 minutes to 7 minutes, and all tests passed. Restore the cache before compilation.
 
-“The same person can recall and contribute. The system infers a completed outcome, records 18 → 7 minutes and passing tests, and stores Tom's verified positive result.”
+**Say:**
 
-## 2:25–2:40 — Mei inherits Tom's result
+> After the experiment, the same teammate reports the measurable result. org.system captures the 18-to-7-minute improvement and passing tests as a new reusable team memory.
 
-Switch to **Mei** and type:
+### 2:01–2:18 — Mei inherits Tom’s result
+
+**Click:** person dropdown → **Mei**. Paste and click **Send**:
 
 > I want to speed up CI builds by caching dependency layers. Should I implement it from scratch?
 
-“Mei's AI finds Tom's verified result, attributes it to Tom, and recommends the working cache strategy instead of duplicate implementation.”
+**Say:**
 
-## 2:40–2:50 — Prove organizational value
+> Mei now receives Tom’s verified method instead of implementing it from scratch. The cumulative counter preserves both outcomes: 148 GPU-hours avoided and 11 build minutes saved. Sarah, Tom, and Mei have identical prompts and capabilities; behavior comes from the work content, not a scripted persona.
 
-Click **My value**, **Team map**, then **Trust center**.
+### 2:18–2:48 — Make the real architecture visible
 
-“This is not a private chatbot memory. Sarah gets attribution, the team sees who knows what, and an administrator sees verification state, freshness, consent policy, and audit events. Impact is counted from recorded reuse events multiplied by verified resource evidence—not a decorative counter.”
+**Click:** **Judge proof**. Pause on the architecture, then scroll slowly to **AI responsibility split**, **Codex MCP surface**, and **Permission gate**. Click **Inspect connection**, show the MCP configuration for two seconds, then click **Close**.
 
-## 2:50–2:55 — Close
+**Say:**
 
-“The hard part is not another chatbot. It is the loop: capture invisible experience, verify both wins and failures, serve it inside the next AI’s workflow, and measure the resources avoided. The project includes a real Codex MCP server and project instructions, while the stage-safe HTML runs offline. org.system turns yesterday’s failed experiment into today’s guardrail.”
+> This page is populated by a live backend endpoint. Codex was used to turn the design into this tested vertical slice, and project-scoped MCP tools bring pre-flight recall and completed-work capture into the coding workflow. The GPT-5.6 path handles trace distillation and evidence-grounded wording. The executable core—persistence, hybrid retrieval, permissions, verification, replay, receipts, and impact accounting—does not depend on model output. That is why this is not ordinary RAG.
 
-## Judge follow-up
+If `/status` does not prove GPT-5.6 was actually used, replace the third sentence with the truthful statement below and complete one real GPT-5.6 Codex review before submission:
 
-- **Is the answer hard-coded?** Language has a deterministic offline fallback, but retrieval, matching, permissions, verification, replay, hash receipt, and usage accounting are real. With an API key, the same request uses live model generation.
-- **Is this just RAG?** No. Candidates are not served until verified; failed work can become a verified negative result; every hit includes a provenance and verification receipt; evidence can be replayed.
-- **Why Tom, Sarah, and Mei?** They have identical capabilities. Sarah contributes a negative result; Tom first reuses it, then runs a novel experiment and contributes a positive result; Mei later inherits Tom's result.
-- **What is mocked?** Only the no-key language layer and the bounded experiment model. There is no fake Docker terminal and no claim that iDynoMiCS itself is bundled.
+> The application includes a GPT-5.6 Responses API path for trace distillation and evidence-grounded wording, with a stage-safe fallback.
+
+### 2:48–2:58 — Close on organizational value
+
+**Click:** **Team map** and point at the real impact totals plus the Sarah → Tom and Tom → Mei inheritance links.
+
+**Say:**
+
+> The inheritance graph proves this is organizational memory, not one chatbot remembering its own conversation. org.system stops AI from repeating organizational mistakes—while preserving innovation, trust, and contributor credit.
+
+## Recording rules
+
+- The final YouTube video must be under three minutes; target 2:55 after trimming loading time.
+- Keep voice clear and music very low or absent.
+- Never say the mock wording provider is a live model. The UI labels the boundary.
+- Never say SQLite is PostgreSQL. Say “SQLite locally, PostgreSQL-ready in shared deployment.”
+- Do not claim three physical clients are connected; Sarah, Tom, and Mei are demo identities using the same policy.
+- If a request fails, restart and record again. Do not splice a fake successful response over it.
+
+## Judge follow-up answers
+
+- **Is this just RAG?** No. A candidate passes evidence, consent, visibility, freshness, and verified-status gates before recall; every reuse has provenance and an impact receipt.
+- **Is the answer hard-coded?** The no-key wording fallback is deterministic. Retrieval, persistence, permissions, verification, subprocess replay, hashing, attribution, and impact accounting execute in both modes.
+- **Why three people?** Sarah contributes a negative result; Tom reuses it and contributes a new positive result; Mei proves the result is organizational rather than private memory.
+- **What is the moat?** The memory is captured at AI work boundaries through MCP, failed work is first-class, and trust plus measured reuse are part of the data model—not added after retrieval.

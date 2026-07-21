@@ -13,13 +13,19 @@
 - [x] Codex server/project instructions trigger pre-flight recall and consented task-completion capture.
 - [x] AI judge receipt identifies rubric, score, rationale, and whether OpenAI or fallback produced it.
 - [x] User value, team knowledge, admin trust, and measured impact views.
-- [x] Eleven automated tests, offline mock safety, cloud authorization checks, and live OpenAI mode.
+- [x] Live Judge proof view separates Codex, GPT-5.6 language path, and the executable non-model core.
+- [x] Capture-stage memory receipt makes evidence, permission, contributor, and verification method visible.
+- [x] Quantified positive and negative reuse: GPU-hours avoided plus build minutes saved.
+- [x] Explicit block/reuse/novelty decisions and a live contributor-to-consumer inheritance graph.
+- [x] Twelve automated tests, offline mock safety, cloud authorization checks, public-visitor isolation, and live OpenAI mode.
 
 ## Must be completed by the submitter (cannot be fabricated by code)
 
 - [ ] Restart Codex with this repository trusted, type a resource-heavy proposal, and record the visible `avoid_duplicate_work` tool call.
 - [ ] Run `/feedback` in the Codex task that contains the core work and paste the real Session ID into `docs/HACKATHON_EVIDENCE.md`.
 - [ ] Record and publish the under-three-minute demo; add the real video and repository URLs.
+- [ ] Confirm `/status` shows the model actually used; do not claim GPT-5.6 usage without evidence.
+- [ ] Confirm the Devpost project is named `org.system`, is entered in **Developer Tools**, and shows green **Submitted** rather than `submission_pre_draft`.
 - [ ] Commit the final files during the eligible submission window and preserve the timestamped commit.
 
 ## Judge-proof framing

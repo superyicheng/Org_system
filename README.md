@@ -2,6 +2,8 @@
 
 org.system is a verified organizational memory layer for AI work. It captures completed work—including expensive failures—distills it into a reusable experience, verifies the evidence, and intercepts a teammate's similar proposal before the team spends the same resources twice.
 
+**OpenAI Build Week track: Developer Tools.** This is infrastructure for AI coding and operations workflows, not a standalone knowledge-base chatbot.
+
 The winning demo story is concrete: Sarah records that embedding 8 TB of Kubernetes logs consumed 148 GPU-hours for only a 3% quality gain. Later, Tom proposes the same full-scale job. org.system retrieves Sarah's verified negative result, generates an evidence-grounded answer, and recommends a 5% measured pilot before any expensive execution begins. Mei remains available as a third teammate to demonstrate that the memory is shared across the group.
 
 ## What is real
@@ -18,7 +20,9 @@ The winning demo story is concrete: Sarah records that embedding 8 TB of Kuberne
 - A task-boundary gateway that automatically distills completed, consented traces.
 - Provider-backed AI judging with an explicit deterministic fallback receipt.
 - User attribution, team discovery, trust-center, and measured-impact views.
-- Twelve automated tests covering the full lifecycle, semantic recall, local demo flow, cloud permissions, public-visitor isolation, replay, and MCP.
+- Explicit pre-flight decisions—block, reuse, or clear novelty—plus a live Sarah → Tom → Mei inheritance graph.
+- A live **Judge proof** view that exposes the running identity, MCP, memory, permission, model-boundary, and impact evidence without leaking private content or credentials.
+- Twelve automated tests covering the full lifecycle, semantic recall, local demo flow, cloud permissions, public-visitor isolation, replay, MCP, and API flow.
 
 ## Shared cloud system (Google Cloud)
 
@@ -89,7 +93,9 @@ The header badge shows `AI · openai` when live mode is active. If the provider 
 4. Watch the verified receipt appear and the avoided impact change to **148 GPUh**.
 5. Click **Replay evidence in isolated process**. The backend launches the bundled worker, extracts all metrics, and checks them against the stored receipt.
 
-The full narration is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+The exact under-three-minute recording timeline—every click, prompt, and spoken line—is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+
+During the final 40 seconds, open **Judge proof**. It is populated from `GET /api/judge/proof`, so the architecture, permissions, MCP tools, storage mode, model boundary, and impact totals are live runtime evidence rather than presentation copy.
 
 ## Connect org.system to Codex through MCP
 
@@ -141,6 +147,7 @@ powershell -ExecutionPolicy Bypass -File ..\scripts\smoke-test.ps1
 - `POST /mcp/` — authenticated Streamable HTTP MCP endpoint (cloud).
 - `GET /api/dashboard/user/{title}`, `/team`, `/admin` — contribution, discovery, and health views.
 - `GET /api/dashboard/impact` — measured reuse and avoided-resource accounting.
+- `GET /api/judge/proof` — sanitized live architecture and capability evidence for judges.
 
 ## Project map
 

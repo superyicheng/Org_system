@@ -17,6 +17,18 @@ class APILoopTest(unittest.TestCase):
                 self.assertEqual(health.status_code, 200)
                 self.assertEqual(health.json()["llm_mode"], "mock")
 
+                proof = client.get("/api/judge/proof")
+                self.assertEqual(proof.status_code, 200)
+                self.assertEqual(proof.json()["runtime"]["status"], "online")
+                self.assertEqual(proof.json()["memory"]["storage_backend"], "SQLite")
+                self.assertIn("avoid_duplicate_work", proof.json()["mcp"]["tools"])
+                self.assertIn("project-scoped MCP", proof.json()["ai_roles"]["codex"])
+                self.assertIn("Candidate", proof.json()["differentiator"]["org_system"])
+                self.assertEqual(
+                    proof.json()["serve_policy"]["gate"],
+                    ["explicit consent", "visibility permission", "verified status"],
+                )
+
                 veteran = client.post("/api/assist", json={
                     "role": "auto",
                     "title": "Sarah",
@@ -89,6 +101,17 @@ class APILoopTest(unittest.TestCase):
                 self.assertEqual(mei.json()["receipt"]["actor"], "Tom")
                 self.assertEqual(mei.json()["avoided"]["display_value"], "11 min")
                 self.assertIn("from 18 to 7 minutes", mei.json()["answer"])
+
+                final_impact = client.get("/api/dashboard/impact")
+                self.assertEqual(final_impact.status_code, 200)
+                self.assertEqual(final_impact.json()["gpu_hours_avoided"], 148.0)
+                self.assertEqual(final_impact.json()["build_minutes_saved"], 11.0)
+
+                team = client.get("/api/dashboard/team")
+                self.assertEqual(team.status_code, 200)
+                inheritance = team.json()["inheritance_links"]
+                self.assertTrue(any(link["source"] == "Sarah" and link["consumer"] == "Tom" for link in inheritance))
+                self.assertTrue(any(link["source"] == "Tom" and link["consumer"] == "Mei" for link in inheritance))
 
             os.environ.pop("ORG_SYSTEM_DB_PATH", None)
 
