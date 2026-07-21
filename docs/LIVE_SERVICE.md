@@ -18,7 +18,7 @@ The Cloud Run service is public only for the web shell, health endpoint, Google 
 - Web app: `https://org-system-demo-6hqysxhb3q-uk.a.run.app`
 - Health check: `https://org-system-demo-6hqysxhb3q-uk.a.run.app/health`
 - Streamable HTTP MCP endpoint: `https://org-system-demo-6hqysxhb3q-uk.a.run.app/mcp/`
-- Cloud Run revision: `org-system-demo-00003-pcz`
+- Cloud Run revision: `org-system-demo-00004-4sk`
 - Runtime identity: `org-system-demo-run@orgsystem-503021.iam.gserviceaccount.com`
 - Database: the dedicated `orgsystem_public` database on the same Cloud SQL instance, with separate user and Secret Manager credentials
 
