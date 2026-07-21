@@ -1,7 +1,5 @@
 """Authenticated Streamable HTTP MCP server for employee Codex clients."""
 
-from __future__ import annotations
-
 from contextlib import asynccontextmanager
 import json
 from typing import Any
