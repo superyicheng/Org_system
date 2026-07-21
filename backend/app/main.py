@@ -211,14 +211,24 @@ def grounded_reuse_answer(receipt: dict[str, Any]) -> tuple[str, dict[str, Any]]
     )
 
 
-@app.get("/", include_in_schema=False)
-def frontend() -> FileResponse:
+def frontend_asset(name: str) -> Path:
+    """Locate a bundled frontend file in both the repo and the container layout.
+
+    In the repo this module is backend/app/main.py, so the frontend sits at
+    parents[2]; the image flattens it to /app/app/main.py, so it sits at
+    parents[1]. Probing both keeps a page from 404ing only in production.
+    """
     module_path = Path(__file__).resolve()
     for parent in (module_path.parents[2], module_path.parents[1]):
-        candidate = parent / "frontend" / "index.html"
+        candidate = parent / "frontend" / name
         if candidate.exists():
-            return FileResponse(candidate)
-    raise HTTPException(status_code=500, detail="Frontend bundle is missing.")
+            return candidate
+    raise HTTPException(status_code=500, detail=f"Frontend bundle is missing {name}.")
+
+
+@app.get("/", include_in_schema=False)
+def frontend() -> FileResponse:
+    return FileResponse(frontend_asset("index.html"))
 
 
 @app.get("/health", tags=["system"])
@@ -369,7 +379,7 @@ def authorize_page(request: Request) -> HTMLResponse:
         "demo": settings.is_demo,
         "problem": problem,
     })
-    page = (Path(__file__).resolve().parents[2] / "frontend" / "authorize.html").read_text(encoding="utf-8")
+    page = frontend_asset("authorize.html").read_text(encoding="utf-8")
     return HTMLResponse(page.replace("__ORG_SYSTEM_AUTHORIZE_CONTEXT__", context))
 
 
