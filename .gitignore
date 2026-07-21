@@ -3,3 +3,10 @@ backend/.org-system-backend.pid
 backend/app/__pycache__/
 backend/tests/__pycache__/
 *.pyc
+
+# This repository is public and .env.example tells you to "Copy to .env", so a real
+# .env holding the Postgres password, session secret, and OpenAI key is one
+# `git add -A` away from being published. Keep the template, never the filled copy.
+.env
+.env.*
+!.env.example

@@ -90,8 +90,9 @@ any signed-in Google user create or join an organization.
 
 ### Connect your AI client
 
-org.system uses OAuth, so there is no token to copy or store. Run one command, approve it in
-the browser that opens, and choose the organization the client acts in.
+org.system uses OAuth. There is no token to create, copy, paste, or store anywhere. You add
+the server, a browser window opens, you approve it and pick the organization the client acts
+in, and that is the whole setup.
 
 **Claude Code**
 
@@ -99,21 +100,20 @@ the browser that opens, and choose the organization the client acts in.
 claude mcp add --transport http org_system https://org-system-6hqysxhb3q-uk.a.run.app/mcp/
 ```
 
-**Codex** — add this to `~/.codex/config.toml`, then run `codex mcp login org_system`:
+**Codex**
 
-```toml
-[mcp_servers.org_system]
-url = "https://org-system-6hqysxhb3q-uk.a.run.app/mcp/"
-required = true
-enabled_tools = ["avoid_duplicate_work", "recall_experience", "record_completed_work", "capture_session_context"]
-default_tools_approval_mode = "writes"
-
-[mcp_servers.org_system.tools.record_completed_work]
-approval_mode = "writes"
+```bash
+codex mcp add org_system --url https://org-system-6hqysxhb3q-uk.a.run.app/mcp/
+codex mcp login org_system
 ```
 
 Any MCP-compatible client works with the same URL, because it discovers the OAuth server on
-its own. Revoke a connection at any time from the Organization panel.
+its own. Check the connection with `/mcp` in Claude Code or `codex mcp list` in Codex, and
+revoke it at any time from the Organization panel or with `codex mcp logout org_system`.
+
+Optionally, make Codex fail closed so a session cannot quietly run without team memory by
+adding `required = true` under `[mcp_servers.org_system]` in `~/.codex/config.toml`. If
+org.system is then unreachable, Codex refuses to start instead of working without it.
 
 ### Make your AI actually use it
 

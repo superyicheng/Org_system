@@ -1,39 +1,45 @@
 # Codex employee setup
 
-Do this on each employee laptop after the shared Google Cloud service is online.
+Do this on each employee laptop after the shared Google Cloud service is online. There is
+no token to create, copy, or store: org.system authenticates over OAuth, and the browser
+handles it.
 
-1. Open `https://org-system-6hqysxhb3q-uk.a.run.app` and sign in with the approved Google account.
-2. Click **Connect Codex** and create a connection for that laptop. Copy the token immediately; the server stores only its hash and cannot show it again.
-3. Store the token in the laptop environment, never in a repository or a checked-in `.codex/config.toml` file.
-
-macOS / Linux:
+1. Open `https://org-system-6hqysxhb3q-uk.a.run.app` and sign in with the approved Google
+   account.
+2. Create an organization, or join your team's with an invite link from its administrator.
+   Everyone in an organization shares one memory, and nothing is visible across
+   organizations.
+3. Add the server and sign in to it. The trailing slash on `/mcp/` is intentional.
 
 ```bash
-export ORG_SYSTEM_MCP_TOKEN='orgmcp_replace_with_the_personal_token'
+codex mcp add org_system --url https://org-system-6hqysxhb3q-uk.a.run.app/mcp/
+codex mcp login org_system
 ```
 
-Windows PowerShell:
+4. A browser window opens. Approve the connection and choose the organization this laptop
+   should act in. The connection is bound to that organization for its lifetime; to use a
+   different one, run `codex mcp login org_system` again.
+5. Confirm it worked with `codex mcp list`.
 
-```powershell
-setx ORG_SYSTEM_MCP_TOKEN "orgmcp_replace_with_the_personal_token"
-```
+Codex can now call `avoid_duplicate_work` before costly work, `capture_session_context` or
+`record_completed_work` when work finishes, and `recall_experience` at any point. In the
+shared service, completed work is held as a candidate until an administrator verifies the
+evidence in Trust center, so Codex never publishes a teammate-visible result by itself.
 
-4. Add this block to `~/.codex/config.toml`. The trailing slash is intentional.
+The behavioural rules that make Codex use these tools consistently live in `AGENTS.md` at
+the repository root. Copy it into any other project where you want the same discipline.
 
-```toml
-[mcp_servers.org_system]
-url = "https://org-system-6hqysxhb3q-uk.a.run.app/mcp/"
-bearer_token_env_var = "ORG_SYSTEM_MCP_TOKEN"
-required = true
-enabled_tools = ["avoid_duplicate_work", "recall_experience", "record_completed_work"]
-default_tools_approval_mode = "writes"
+## Optional: fail closed
 
-[mcp_servers.org_system.tools.record_completed_work]
-approval_mode = "writes"
-```
+To make a Codex session refuse to start when org.system is unreachable, rather than quietly
+working without team memory, add `required = true` under `[mcp_servers.org_system]` in
+`~/.codex/config.toml`.
 
-5. Restart Codex. It can call `avoid_duplicate_work` before costly work and `record_completed_work` after evidence-backed work completes. In the shared service, completed work is held as a candidate until an administrator verifies the evidence in Trust center; Codex never makes a teammate-visible result by itself.
+## Revoking a laptop
 
-The **Connect Codex** dialog can also download this setup as a text file. The endpoint uses standard Streamable HTTP MCP, so another MCP-compatible AI client can use the same URL and bearer token; only its client-specific configuration syntax changes.
+Run `codex mcp logout org_system` on the laptop, or revoke the connection from the
+Organization panel on the website. Revocation takes effect on the next request. Removing
+someone from an organization also revokes every connection they hold in it.
 
-Each token represents one laptop and one Google identity. To retire a laptop, open **Connect Codex**, press **Revoke** beside that device, then remove the token and MCP configuration from the laptop. Revocation takes effect on the next request.
+The endpoint is standard Streamable HTTP MCP with OAuth discovery, so any MCP-compatible
+client can use the same URL. Only the client's own command syntax differs.
