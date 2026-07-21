@@ -18,13 +18,17 @@ The winning demo story is concrete: Sarah records that embedding 8 TB of Kuberne
 - A task-boundary gateway that automatically distills completed, consented traces.
 - Provider-backed AI judging with an explicit deterministic fallback receipt.
 - User attribution, team discovery, trust-center, and measured-impact views.
-- Eleven automated tests covering the full lifecycle, semantic recall, local demo flow, cloud permissions, replay, and MCP.
+- Twelve automated tests covering the full lifecycle, semantic recall, local demo flow, cloud permissions, public-visitor isolation, replay, and MCP.
 
 ## Shared cloud system (Google Cloud)
 
 For real employee use, deploy the FastAPI service to **Cloud Run** and use **Cloud SQL for PostgreSQL** as the shared store. Google Identity signs employees into the web app; the boss allowlists employee addresses in Trust center, and each employee downloads a personal, revocable bearer-token setup for Codex or another Streamable HTTP MCP client. Their laptops do not run a database or expose any service.
 
 Start with [Google Cloud production deployment](docs/GOOGLE_CLOUD_DEPLOYMENT.md). It identifies the one Google Cloud project, OAuth web client, Cloud SQL instance, secrets, and Cloud Run service to create. Then use [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md) on every laptop.
+
+## Public personal-memory trial
+
+The separately deployed [public trial](docs/PUBLIC_DEMO.md) accepts any Google account after the OAuth app is published. It has a different Cloud SQL database and runtime identity from the private organization service. Every visitor receives a private persistent memory and personal revocable MCP token; public-trial records are never visible to another visitor or to the organization service.
 
 ## Demo-safe boundary
 

@@ -37,14 +37,22 @@ class Settings:
     def is_demo(self) -> bool:
         return self.auth_mode == "demo"
 
+    @property
+    def is_public_trial(self) -> bool:
+        return self.auth_mode == "public"
+
+    @property
+    def auto_verifies_personal_memory(self) -> bool:
+        return self.is_demo or self.is_public_trial
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     backend_dir = Path(__file__).resolve().parents[1]
     local_url = f"sqlite:///{backend_dir / 'data' / 'org_system.sqlite3'}"
     auth_mode = os.getenv("AUTH_MODE", "demo").lower()
-    if auth_mode not in {"demo", "google"}:
-        raise ValueError("AUTH_MODE must be either 'demo' or 'google'.")
+    if auth_mode not in {"demo", "google", "public"}:
+        raise ValueError("AUTH_MODE must be 'demo', 'google', or 'public'.")
     public_url = _origin(os.getenv("PUBLIC_URL", "http://127.0.0.1:8000"))
     allowed_origins = tuple(_origin(value) for value in os.getenv("ALLOWED_ORIGINS", public_url).split(",") if value.strip())
     # Keep the pre-cloud test/demo override working while production uses DATABASE_URL.
@@ -73,5 +81,5 @@ def get_settings() -> Settings:
         reverify_interval_seconds=max(60, int(os.getenv("ORG_SYSTEM_REVERIFY_SECONDS", "3600"))),
     )
     if not settings.is_demo and (not settings.google_client_id or len(settings.session_secret) < 32):
-        raise ValueError("Google cloud mode requires GOOGLE_CLIENT_ID and a SESSION_SECRET of at least 32 characters.")
+        raise ValueError("Google and public cloud modes require GOOGLE_CLIENT_ID and a SESSION_SECRET of at least 32 characters.")
     return settings

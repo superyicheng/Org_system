@@ -74,7 +74,7 @@ def recall_experience(query: str, limit: int = 3) -> dict[str, Any]:
     employee = _employee()
     if _store is None:
         raise RuntimeError("org.system storage is unavailable.")
-    return {"receipts": _store.recall(query=query, consumer=employee["email"], limit=max(1, min(limit, 10)), record_usage=True)}
+    return {"receipts": _store.recall(query=query, consumer=employee["email"], limit=max(1, min(limit, 10)), record_usage=True, personal_only=_settings.is_public_trial)}
 
 
 @server.tool()
@@ -83,7 +83,7 @@ def avoid_duplicate_work(proposal: str, limit: int = 3) -> dict[str, Any]:
     employee = _employee()
     if _store is None:
         raise RuntimeError("org.system storage is unavailable.")
-    receipts = _store.recall(query=proposal, consumer=employee["email"], limit=max(1, min(limit, 5)), record_usage=True)
+    receipts = _store.recall(query=proposal, consumer=employee["email"], limit=max(1, min(limit, 5)), record_usage=True, personal_only=_settings.is_public_trial)
     return {"matched": bool(receipts), "verified_receipts": receipts}
 
 
@@ -95,6 +95,7 @@ def store_experience(task: str, trace_summary: str, tags: list[str] | None = Non
         raise RuntimeError("org.system storage is unavailable.")
     if visibility not in {"private", "team", "org"}:
         raise ValueError("visibility must be private, team, or org")
+    visibility = "private" if _settings.is_public_trial else visibility
     candidate = _store.create_candidate({"actor": {"id": employee["email"], "display_name": employee["display_name"]}, "task": task, "trace_summary": trace_summary, "tool_name": "Codex via Streamable HTTP MCP", "tags": tags or [], "visibility": visibility, "consent": True})
     return {"experience_id": candidate["id"], "status": "candidate"}
 
@@ -105,8 +106,9 @@ def record_completed_work(task: str, trace_summary: str, what_worked: str, evide
     employee = _employee()
     if _store is None:
         raise RuntimeError("org.system storage is unavailable.")
+    visibility = "private" if _settings.is_public_trial else visibility
     candidate = _store.create_candidate({"actor": {"id": employee["email"], "display_name": employee["display_name"]}, "task": task, "trace_summary": trace_summary, "tool_name": "Codex via Streamable HTTP MCP", "tags": tags or [], "rationale": what_worked, "visibility": visibility, "consent": True, "outcome": "success", "domain_extension": {"reuse_recipe": what_worked}})
-    saved = _store.verify(candidate["id"], verify(candidate, {"method": "outcome_signal", "evidence_confirmed": evidence_confirmed})) if _settings.is_demo else candidate
+    saved = _store.verify(candidate["id"], verify(candidate, {"method": "outcome_signal", "evidence_confirmed": evidence_confirmed})) if _settings.auto_verifies_personal_memory else candidate
     return {"experience_id": saved["id"], "status": saved["status"], "asset_hash": _store.hash_for(saved["id"]) or ""}
 
 

@@ -259,12 +259,12 @@ class ExperienceStore:
         visibility = item["visibility"]
         return bool(visibility["consent"].get("opt_in")) and (visibility["scope"] in {"team", "org"} or actor_key(item) == consumer.lower())
 
-    def recall(self, *, query: str, consumer: str, limit: int, record_usage: bool) -> list[dict[str, Any]]:
+    def recall(self, *, query: str, consumer: str, limit: int, record_usage: bool, personal_only: bool = False) -> list[dict[str, Any]]:
         query_terms = tokens(query)
         query_vector = embed(query)
         candidates = [
             item for item in self.list_experiences(include_nonserveable=False)
-            if self._permitted(item, consumer)
+            if self._permitted(item, consumer) and (not personal_only or actor_key(item) == consumer.lower())
         ]
         with self._connection() as conn:
             vector_rows = conn.execute(text("SELECT experience_id, vector FROM experience_vectors")).mappings().all()
@@ -351,12 +351,14 @@ class ExperienceStore:
             "experiences": mine,
         }
 
-    def team_dashboard(self, *, consumer: str | None = None) -> dict[str, Any]:
+    def team_dashboard(self, *, consumer: str | None = None, personal_only: bool = False) -> dict[str, Any]:
         items = self.list_experiences(consumer=consumer)
         if consumer is not None:
             # An employee may see their own pending draft, but a teammate's
             # candidate is never surfaced as organizational knowledge.
             items = [item for item in items if item["status"] == "verified" or actor_key(item) == consumer.lower()]
+        if personal_only and consumer is not None:
+            items = [item for item in items if actor_key(item) == consumer.lower()]
         knowledge: dict[str, Counter[str]] = defaultdict(Counter)
         for item in items:
             for tag in item.get("tags", []):
@@ -426,8 +428,10 @@ class ExperienceStore:
                 })
         return {"id": event_id, "session_id": event["session_id"], "event_type": event["event_type"], "happened_at": happened_at}
 
-    def impact_dashboard(self) -> dict[str, Any]:
+    def impact_dashboard(self, *, consumer: str | None = None) -> dict[str, Any]:
         items = self.list_experiences()
+        if consumer is not None:
+            items = [item for item in items if actor_key(item) == consumer.lower()]
         reuse_events = sum(item.get("usage", {}).get("times_served", 0) for item in items)
         avoided_gpu_hours = 0.0
         intercepted = 0

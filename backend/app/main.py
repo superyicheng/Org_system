@@ -22,7 +22,10 @@ from app.verifiers import verify
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     store = ExperienceStore(settings)
-    store.seed()
+    # The public trial is a blank personal workspace, never an exposed copy of
+    # the award fixtures or the organization database.
+    if not settings.is_public_trial:
+        store.seed()
     configure_mcp(store)
     app.state.store = store
     app.state.settings = settings
@@ -88,6 +91,19 @@ def actor_for(identity: Any, supplied_name: str, request: Request) -> dict[str, 
         name = supplied_name.strip() or "Demo User"
         return {"id": name.lower().replace(" ", "-"), "display_name": name}
     return {"id": identity.email, "display_name": identity.display_name}
+
+
+def visibility_for(request: Request, requested: str) -> str:
+    """Public trial records are private to their visitor; team scope is never public."""
+    return "private" if request.app.state.settings.is_public_trial else requested
+
+
+def may_manage_experience(identity: Any, experience: dict[str, Any], request: Request) -> bool:
+    """Public-trial visitors can manage only their own private records."""
+    settings = request.app.state.settings
+    return identity.role == "admin" or (
+        (settings.is_demo or settings.is_public_trial) and actor_key(experience) == identity.email
+    )
 
 
 def domain_extension_for(distilled: dict[str, Any], **extra: Any) -> dict[str, Any]:
@@ -191,7 +207,7 @@ def google_sign_in(payload: GoogleCredentialRequest, request: Request) -> dict[s
         raise HTTPException(status_code=400, detail="Google sign-in is disabled in local demo mode.")
     identity = verify_google(payload.credential, settings)
     store = store_for(request)
-    if not store.member_is_allowed(email=identity.email, configured_emails=settings.admin_emails | settings.allowed_emails):
+    if not settings.is_public_trial and not store.member_is_allowed(email=identity.email, configured_emails=settings.admin_emails | settings.allowed_emails):
         raise HTTPException(status_code=403, detail="Your Google account has not been added to this org.system team.")
     store.upsert_user(email=identity.email, display_name=identity.display_name, role=identity.role)
     return {"access_token": issue_session(identity, settings), "token_type": "bearer", "user": identity.__dict__}
@@ -264,7 +280,9 @@ def deprovision_member(email: str, request: Request) -> dict[str, bool]:
 def experiences(request: Request, include_nonserveable: bool = True) -> dict[str, Any]:
     identity = require_identity(request)
     items = store_for(request).list_experiences(include_nonserveable=include_nonserveable, consumer=None if identity.role == "admin" else identity.email)
-    if identity.role != "admin":
+    if request.app.state.settings.is_public_trial:
+        items = [item for item in items if actor_key(item) == identity.email]
+    elif identity.role != "admin":
         items = [item for item in items if item["status"] == "verified" or actor_key(item) == identity.email]
     return {"experiences": items}
 
@@ -276,8 +294,13 @@ def capture(payload: CaptureRequest, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Capture requires explicit consent.")
     capture_data = payload.model_dump()
     capture_data["actor"] = actor_for(identity, payload.actor, request)
+    capture_data["visibility"] = visibility_for(request, payload.visibility)
     experience = store_for(request).create_candidate(capture_data)
-    return {"experience": experience, "next_action": "Verify the candidate before it can be served to a teammate."}
+    return {"experience": experience, "next_action": (
+        "Verify the candidate before it can be served to your future AI requests."
+        if request.app.state.settings.is_public_trial else
+        "Verify the candidate before it can be served to a teammate."
+    )}
 
 
 @app.post("/api/distill", status_code=201, tags=["capture"])
@@ -294,7 +317,7 @@ def distill_trace(payload: DistillRequest, request: Request) -> dict[str, Any]:
         "tool_name": payload.tool_name,
         "tags": distilled["tags"],
         "rationale": distilled["rationale"],
-        "visibility": payload.visibility,
+        "visibility": visibility_for(request, payload.visibility),
         "consent": payload.consent,
         "outcome": distilled["outcome"],
         "domain_extension": domain_extension_for(distilled),
@@ -309,10 +332,8 @@ def verify_experience(experience_id: str, payload: VerifyRequest, request: Reque
     experience = store.get(experience_id)
     if experience is None:
         raise HTTPException(status_code=404, detail="Experience not found.")
-    if not request.app.state.settings.is_demo and identity.role != "admin":
+    if not may_manage_experience(identity, experience, request):
         raise HTTPException(status_code=403, detail="Only an admin can verify shared production experience.")
-    if request.app.state.settings.is_demo and identity.role != "admin" and actor_key(experience) != identity.email:
-        raise HTTPException(status_code=403, detail="Only the contributor or an admin can verify this experience.")
     updated = store.verify(experience_id, verify(experience, payload.model_dump()))
     return {"experience": updated, "serveable": updated["status"] == "verified"}
 
@@ -324,10 +345,8 @@ def replay_and_verify(experience_id: str, request: Request) -> dict[str, Any]:
     experience = store.get(experience_id)
     if experience is None:
         raise HTTPException(status_code=404, detail="Experience not found.")
-    if not request.app.state.settings.is_demo and identity.role != "admin":
+    if not may_manage_experience(identity, experience, request):
         raise HTTPException(status_code=403, detail="Only an admin can replay shared production experience.")
-    if request.app.state.settings.is_demo and identity.role != "admin" and actor_key(experience) != identity.email:
-        raise HTTPException(status_code=403, detail="Only the contributor or an admin can replay this experience.")
     try:
         replay = replay_experience(experience)
     except ValueError as error:
@@ -348,10 +367,8 @@ def ai_judge_experience(experience_id: str, request: Request) -> dict[str, Any]:
     experience = store.get(experience_id)
     if experience is None:
         raise HTTPException(status_code=404, detail="Experience not found.")
-    if not request.app.state.settings.is_demo and identity.role != "admin":
+    if not may_manage_experience(identity, experience, request):
         raise HTTPException(status_code=403, detail="Only an admin can judge shared production experience.")
-    if request.app.state.settings.is_demo and identity.role != "admin" and actor_key(experience) != identity.email:
-        raise HTTPException(status_code=403, detail="Only the contributor or an admin can judge this experience.")
     judge = request.app.state.llm.judge_experience(experience)
     updated = store.verify(experience_id, verify(experience, {
         "method": "llm_judge", "judge_score": judge["score"],
@@ -364,7 +381,7 @@ def recall(payload: RecallRequest, request: Request) -> dict[str, Any]:
     identity = require_identity(request)
     recall_data = payload.model_dump()
     recall_data["consumer"] = identity.email
-    receipts = store_for(request).recall(**recall_data)
+    receipts = store_for(request).recall(**recall_data, personal_only=request.app.state.settings.is_public_trial)
     return {
         "query": payload.query,
         "consumer": identity.display_name,
@@ -394,18 +411,18 @@ def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
             "tool_name": "Codex work session",
             "tags": distilled["tags"],
             "rationale": distilled["rationale"],
-            "visibility": "team",
+            "visibility": visibility_for(request, "team"),
             "consent": True,
             "outcome": distilled["outcome"],
             "domain_extension": domain_extension_for(distilled),
         })
         verified = store.verify(candidate["id"], verify(candidate, {
             "method": "outcome_signal", "evidence_confirmed": True,
-        })) if request.app.state.settings.is_demo else candidate
+        })) if request.app.state.settings.auto_verifies_personal_memory else candidate
         fallback = (
             "I captured the completed experiment as a verified negative result. The reusable lesson is: "
-            f"{distilled['what_worked']} The evidence and provenance are now available to the next teammate's AI - no documentation form required."
-            if request.app.state.settings.is_demo else
+            f"{distilled['what_worked']} The evidence and provenance are now available to the next AI request - no documentation form required."
+            if request.app.state.settings.auto_verifies_personal_memory else
             "I captured the completed experiment as a candidate for administrator verification. The reusable lesson is: "
             f"{distilled['what_worked']} It will become available to teammates only after the evidence gate passes."
         )
@@ -417,7 +434,7 @@ def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
         return {"answer": answer, "intent": "capture", "experience": verified, "distilled": distilled, "llm_mode": llm.mode}
 
     consumer = actor_for(identity, payload.title, request)["id"]
-    receipts = store.recall(query=payload.message, consumer=consumer, limit=3, record_usage=payload.record_usage)
+    receipts = store.recall(query=payload.message, consumer=consumer, limit=3, record_usage=payload.record_usage, personal_only=request.app.state.settings.is_public_trial)
     if not receipts:
         fallback = (
             "I found no verified prior team experience close enough to this proposal. You can proceed with a bounded experiment: "
@@ -463,18 +480,18 @@ def gateway_event(payload: GatewayEvent, request: Request) -> dict[str, Any]:
     candidate = store.create_candidate({
         "actor": actor, "task": distilled["task"], "trace_summary": distilled["trace_summary"],
         "tool_name": payload.tool_name, "tags": sorted(set(payload.tags + distilled["tags"])),
-        "rationale": distilled["rationale"], "visibility": payload.visibility, "consent": payload.consent,
+        "rationale": distilled["rationale"], "visibility": visibility_for(request, payload.visibility), "consent": payload.consent,
         "outcome": "success" if payload.succeeded else distilled["outcome"],
         "domain_extension": domain_extension_for(distilled, gateway_session_id=payload.session_id),
     })
     experience = store.verify(candidate["id"], verify(candidate, {
         "method": "outcome_signal", "evidence_confirmed": payload.succeeded,
-    })) if request.app.state.settings.is_demo else candidate
+    })) if request.app.state.settings.auto_verifies_personal_memory else candidate
     return {
         "captured": True, "event": event, "experience": experience,
         "note": (
             "Task boundary automatically distilled and verified the consented trace."
-            if request.app.state.settings.is_demo and payload.succeeded else
+            if request.app.state.settings.auto_verifies_personal_memory and payload.succeeded else
             "Task boundary automatically distilled the consented trace; it awaits administrator verification before teammate reuse."
         ),
     }
@@ -491,7 +508,7 @@ def user_dashboard(actor: str, request: Request) -> dict[str, Any]:
 @app.get("/api/dashboard/team", tags=["dashboard"])
 def team_dashboard(request: Request) -> dict[str, Any]:
     identity = require_identity(request)
-    return store_for(request).team_dashboard(consumer=None if identity.role == "admin" else identity.email)
+    return store_for(request).team_dashboard(consumer=None if identity.role == "admin" else identity.email, personal_only=request.app.state.settings.is_public_trial)
 
 
 @app.get("/api/dashboard/admin", tags=["dashboard"])
@@ -502,8 +519,8 @@ def admin_dashboard(request: Request) -> dict[str, Any]:
 
 @app.get("/api/dashboard/impact", tags=["dashboard"])
 def impact_dashboard(request: Request) -> dict[str, Any]:
-    require_identity(request)
-    return store_for(request).impact_dashboard()
+    identity = require_identity(request)
+    return store_for(request).impact_dashboard(consumer=identity.email if request.app.state.settings.is_public_trial else None)
 
 
 @app.post("/api/demo/reset", tags=["system"])
