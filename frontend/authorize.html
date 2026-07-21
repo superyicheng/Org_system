@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize an AI client · org.system</title>
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --card:#171a21; --ink:#e8eaf0; --muted:#9aa3b2; --line:#262b36; --accent:#4f8cff; --warn:#ffb020; --bad:#ff6b6b; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f4f6fa; --card:#fff; --ink:#161a22; --muted:#5d6675; --line:#e2e6ee; } }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
+         background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  .card { width:min(560px,100%); background:var(--card); border:1px solid var(--line); border-radius:14px; padding:28px; }
+  h1 { font-size:1.25rem; margin:0 0 4px; }
+  p { margin:0 0 14px; color:var(--muted); }
+  .client { font-weight:600; color:var(--ink); }
+  .scopes { border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:18px 0; }
+  .scopes li { margin:6px 0; }
+  ul { padding-left:20px; margin:8px 0 0; }
+  .org { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:8px 0; cursor:pointer; }
+  .org:hover { border-color:var(--accent); }
+  .org input { accent-color:var(--accent); }
+  .org small { display:block; color:var(--muted); }
+  button { font:inherit; font-weight:600; padding:11px 18px; border-radius:9px; border:1px solid transparent; cursor:pointer; }
+  .primary { background:var(--accent); color:#fff; width:100%; }
+  .primary[disabled] { opacity:.5; cursor:not-allowed; }
+  .ghost { background:transparent; color:var(--muted); border-color:var(--line); }
+  .row { display:flex; gap:10px; margin-top:16px; }
+  .note { font-size:.85rem; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; margin-top:20px; }
+  .bad { color:var(--bad); }
+  .warn { color:var(--warn); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="error" class="hidden">
+    <h1 class="bad">This request cannot be authorized</h1>
+    <p id="errorText"></p>
+    <p class="note">Nothing was shared. You can close this window.</p>
+  </div>
+
+  <div id="flow">
+    <h1>Connect an AI client to org.system</h1>
+    <p><span class="client" id="clientName"></span> is asking to use your organization's verified memory.</p>
+
+    <div class="scopes">
+      <strong>This will let it</strong>
+      <ul>
+        <li>Read verified experiences you are permitted to see</li>
+        <li>Record new work as a candidate for administrator verification</li>
+      </ul>
+      <strong style="display:block;margin-top:10px">It will not</strong>
+      <ul>
+        <li>See other organizations, private records, or unverified candidates from teammates</li>
+        <li>Act after you revoke it in Trust center</li>
+      </ul>
+    </div>
+
+    <div id="signin">
+      <p>Sign in to continue.</p>
+      <div id="gsi"></div>
+      <button id="demoBtn" class="primary hidden">Authorize as Demo User</button>
+    </div>
+
+    <div id="chooser" class="hidden">
+      <p>Signed in as <strong id="who"></strong>. Choose the organization this client may act in.</p>
+      <div id="orgs"></div>
+      <div class="row">
+        <button id="approve" class="primary" disabled>Authorize</button>
+        <button id="cancel" class="ghost">Cancel</button>
+      </div>
+      <p class="note">The connection is bound to the organization you pick. To connect a different one, run the connect flow again.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const CTX = __ORG_SYSTEM_AUTHORIZE_CONTEXT__;
+const $ = id => document.getElementById(id);
+let credential = "";
+
+function fail(message) {
+  $("flow").classList.add("hidden");
+  $("error").classList.remove("hidden");
+  $("errorText").textContent = message;
+}
+
+if (CTX.problem) {
+  fail(CTX.problem);
+} else {
+  $("clientName").textContent = CTX.client_name;
+}
+
+async function consent(orgId) {
+  const response = await fetch("/oauth/authorize/consent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      credential, client_id: CTX.client_id, redirect_uri: CTX.redirect_uri,
+      code_challenge: CTX.code_challenge, state: CTX.state, scope: CTX.scope,
+      org_id: orgId || "",
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || "Authorization was refused.");
+  return data;
+}
+
+function showOrganizations(data) {
+  $("signin").classList.add("hidden");
+  $("chooser").classList.remove("hidden");
+  $("who").textContent = data.user.display_name + " (" + data.user.email + ")";
+  if (!data.organizations.length) {
+    $("orgs").innerHTML = '<p class="warn">You do not belong to an organization yet. Create or join one on the org.system website, then run this connect flow again.</p>';
+    return;
+  }
+  $("orgs").innerHTML = data.organizations.map((org, index) => `
+    <label class="org">
+      <input type="radio" name="org" value="${org.id}" ${index === 0 ? "checked" : ""}>
+      <span><strong>${org.name}</strong><small>${org.role === "admin" ? "Administrator" : "Member"}</small></span>
+    </label>`).join("");
+  $("approve").disabled = false;
+}
+
+$("approve").onclick = async () => {
+  const picked = document.querySelector('input[name="org"]:checked');
+  if (!picked) return;
+  $("approve").disabled = true;
+  try {
+    const granted = await consent(picked.value);
+    window.location.href = granted.redirect_to;
+  } catch (error) {
+    fail(error.message);
+  }
+};
+
+$("cancel").onclick = () => {
+  const separator = CTX.redirect_uri.includes("?") ? "&" : "?";
+  const state = CTX.state ? "&state=" + encodeURIComponent(CTX.state) : "";
+  window.location.href = CTX.redirect_uri + separator + "error=access_denied" + state;
+};
+
+async function afterSignIn() {
+  try {
+    showOrganizations(await consent(""));
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+if (CTX.demo) {
+  $("demoBtn").classList.remove("hidden");
+  $("demoBtn").onclick = afterSignIn;
+} else if (CTX.google_client_id && !CTX.problem) {
+  const script = document.createElement("script");
+  script.src = "https://accounts.google.com/gsi/client";
+  script.async = true;
+  script.onload = () => {
+    google.accounts.id.initialize({
+      client_id: CTX.google_client_id,
+      callback: response => { credential = response.credential; afterSignIn(); },
+    });
+    google.accounts.id.renderButton($("gsi"), { theme: "outline", size: "large", width: 320 });
+  };
+  document.head.appendChild(script);
+} else if (!CTX.problem) {
+  fail("Google sign-in is not configured on this deployment.");
+}
+</script>
+</body>
+</html>

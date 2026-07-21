@@ -16,11 +16,22 @@ from app.config import get_settings
 from app.main import app
 
 settings = get_settings()
-admin = issue_session(Identity('admin@example.com', 'Admin', 'admin', 'test'), settings)
-employee = issue_session(Identity('employee@example.com', 'Employee', 'employee', 'test'), settings)
-employee_headers = {'Authorization': f'Bearer {employee}'}
 
 with TestClient(app) as client:
+    # Sign-in joins an allowlisted employee to the organization their records live in;
+    # these sessions are minted directly, so do the same thing explicitly.
+    store = app.state.store
+    org_id = store.default_organization()['id']
+    for email, display_name, role in (
+        ('admin@example.com', 'Admin', 'admin'),
+        ('employee@example.com', 'Employee', 'employee'),
+    ):
+        store.upsert_user(email=email, display_name=display_name, role=role)
+        store.add_member(org_id=org_id, email=email, role=role)
+    admin = issue_session(Identity('admin@example.com', 'Admin', 'admin', 'test', org_id), settings)
+    employee = issue_session(Identity('employee@example.com', 'Employee', 'employee', 'test', org_id), settings)
+    employee_headers = {'Authorization': f'Bearer {employee}'}
+
     captured = client.post('/api/capture', headers=employee_headers, json={
         'task': 'Document production cache result',
         'trace_summary': 'The measured build result completed successfully.',
@@ -34,18 +45,13 @@ with TestClient(app) as client:
                            json={'method': 'outcome_signal', 'evidence_confirmed': True})
     assert rejected.status_code == 403, rejected.text
 
-    connection = client.post('/api/auth/mcp-token', headers=employee_headers, json={'label': 'test laptop'})
-    assert connection.status_code == 200, connection.text
-    token = connection.json()['token']
-    mcp_headers = {
+    # Machine tokens are retired: MCP access is OAuth-only, and an unauthenticated
+    # call must be challenged rather than served. The full OAuth flow is in test_oauth.
+    unauthenticated = client.post('/mcp/', headers={
         'Accept': 'application/json, text/event-stream', 'Content-Type': 'application/json',
-        'Authorization': f'Bearer {token}',
-    }
-    initialized = client.post('/mcp/', headers=mcp_headers, json={
-        'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
-        'params': {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'test', 'version': '1'}},
-    })
-    assert initialized.status_code == 200, initialized.text
+    }, json={'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}})
+    assert unauthenticated.status_code == 401, unauthenticated.text
+    assert 'resource_metadata=' in unauthenticated.headers.get('www-authenticate', '')
 
     verified = client.post(f'/api/experiences/{experience_id}/verify', headers={'Authorization': f'Bearer {admin}'},
                            json={'method': 'outcome_signal', 'evidence_confirmed': True})

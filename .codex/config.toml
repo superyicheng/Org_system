@@ -1,13 +1,29 @@
-# Template only: do not put a personal token or a real service URL in this repository.
-# Each employee should add the enabled configuration from docs/CODEX_EMPLOYEE_SETUP.md
-# to their own ~/.codex/config.toml after signing in to the hosted service.
+# Codex MCP configuration template for org.system.
+#
+# IMPORTANT: Codex does NOT read this file from the repository. Verified against
+# codex-cli 0.144.5: with an empty CODEX_HOME and this repo as the working directory,
+# `codex mcp list` reports no servers. Only `~/.codex/config.toml` is loaded.
+#
+# Copy the block below into your own ~/.codex/config.toml, then restart Codex.
+# The behavioural rules in AGENTS.md *are* read from the repository and apply
+# automatically; this file supplies the connection and the fail-closed enforcement.
+#
+# The service URL is public and safe to check in. The personal token is NOT: it stays
+# in the ORG_SYSTEM_MCP_TOKEN environment variable on each laptop. Never commit a token.
+#
+# required = true is deliberately fail-closed: if org.system cannot be reached, or the
+# token is missing or revoked, the Codex session fails to start instead of silently
+# running without team memory. Set it to false if you need to work offline.
 [mcp_servers.org_system]
-url = "https://replace-with-your-cloud-run-url/mcp/"
+url = "https://org-system-6hqysxhb3q-uk.a.run.app/mcp/"
 bearer_token_env_var = "ORG_SYSTEM_MCP_TOKEN"
-enabled = false
-required = false
+enabled = true
+required = true
 tool_timeout_sec = 30
 enabled_tools = ["avoid_duplicate_work", "recall_experience", "record_completed_work"]
+
+# Valid values are auto, prompt, writes, approve. Writing to organizational memory
+# always requires explicit user approval.
 default_tools_approval_mode = "writes"
 
 [mcp_servers.org_system.tools.record_completed_work]

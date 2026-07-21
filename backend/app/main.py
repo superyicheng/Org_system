@@ -1,19 +1,21 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
+import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from app.auth import issue_session, new_machine_token, require_admin, require_identity, verify_google
+from app.auth import Identity, issue_session, require_admin, require_identity, require_org, verify_google
 from app.config import get_settings
 from app.distiller import distill
 from app.experience_store import ExperienceStore, actor_key
 from app.llm_client import LLMClient
 from app.mcp_service import app as mcp_app, configure_mcp, lifespan as mcp_lifespan
-from app.models import AssistRequest, CaptureRequest, DistillRequest, GatewayEvent, GoogleCredentialRequest, MCPTokenRequest, MemberInviteRequest, RecallRequest, VerifyRequest
+from app.models import AssistRequest, CaptureRequest, CreateInviteRequest, CreateOrganizationRequest, DistillRequest, GatewayEvent, GoogleCredentialRequest, JoinOrganizationRequest, MemberInviteRequest, OAuthConsentRequest, RecallRequest, RegisterClientRequest, VerifyRequest
+from app.oauth import OAuthError, OAuthStore, SUPPORTED_SCOPES, authorization_server_metadata, protected_resource_metadata, redirect_with
 from app.runners import replay_experience
 from app.verifiers import verify
 
@@ -26,10 +28,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the award fixtures or the organization database.
     if not settings.is_public_trial:
         store.seed()
-    configure_mcp(store)
+    # Existing deployments predate organizations: give their records and members a home
+    # before any request can be served, so nothing is stranded without an owner.
+    default_org = store.adopt_orphans()
+    if settings.is_demo:
+        # Keep the local demo internally consistent: the demo identity is a real
+        # member of the organization whose records it is looking at.
+        store.upsert_user(email="demo@org.system", display_name="Demo User", role="admin")
+        store.add_member(org_id=default_org, email="demo@org.system", role="admin")
+    oauth = OAuthStore(store.engine)
+    llm = LLMClient(settings)
+    configure_mcp(store, oauth, llm)
     app.state.store = store
     app.state.settings = settings
-    app.state.llm = LLMClient(settings)
+    app.state.oauth = oauth
+    app.state.llm = llm
     async def scheduled_reverification() -> None:
         # REAL LOGIC: due evidence is periodically rerun or marked stale, fail closed.
         while True:
@@ -78,11 +91,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+def protected_resource_document(request: Request) -> dict[str, Any]:
+    """RFC 9728 metadata that turns the 401 on /mcp/ into a usable OAuth flow."""
+    return protected_resource_metadata(request.app.state.settings.public_url)
+
+
+# Registered before the mount on purpose: Starlette matches routes in registration
+# order, so anything added after app.mount("/mcp", ...) can never win for a /mcp path.
+# Clients and SDK versions disagree about where this document lives, so serve every
+# spelling rather than leave discovery to luck.
+for _metadata_path in (
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-protected-resource/mcp",
+    "/mcp/.well-known/oauth-protected-resource",
+    "/mcp/.well-known/oauth-protected-resource/mcp",
+):
+    app.add_api_route(_metadata_path, protected_resource_document, methods=["GET"], include_in_schema=False, tags=["oauth"])
+
 app.mount("/mcp", mcp_app)
 
 
 def store_for(request: Request) -> ExperienceStore:
     return request.app.state.store
+
+
+def oauth_store_for(request: Request) -> OAuthStore:
+    return request.app.state.oauth
 
 
 def actor_for(identity: Any, supplied_name: str, request: Request) -> dict[str, str]:
@@ -228,7 +262,7 @@ def judge_proof(request: Request) -> dict[str, Any]:
     store = store_for(request)
     admin = store.admin_dashboard()
     impact = store.impact_dashboard()
-    active_tokens = [token for token in store.list_mcp_tokens() if not token.get("revoked_at")]
+    active_connections = oauth_store_for(request).connections(email=identity.email)
     storage_backend = "PostgreSQL" if settings.database_url.startswith("postgresql") else "SQLite"
     identity_boundary = (
         "Demo identities (Sarah, Tom, Mei)"
@@ -261,7 +295,7 @@ def judge_proof(request: Request) -> dict[str, Any]:
             "status": "ready",
             "endpoint": f"{settings.public_url}/mcp/",
             "transports": ["Streamable HTTP", "stdio"],
-            "active_personal_tokens": len(active_tokens),
+            "active_oauth_connections": len(active_connections),
             "tools": [
                 "avoid_duplicate_work",
                 "recall_experience",
@@ -291,6 +325,144 @@ def judge_proof(request: Request) -> dict[str, Any]:
     }
 
 
+@app.get("/.well-known/oauth-authorization-server", include_in_schema=False, tags=["oauth"])
+@app.get("/.well-known/oauth-authorization-server/mcp", include_in_schema=False, tags=["oauth"])
+def oauth_metadata(request: Request) -> dict[str, Any]:
+    return authorization_server_metadata(request.app.state.settings.public_url)
+
+
+@app.post("/oauth/register", status_code=201, tags=["oauth"])
+def register_oauth_client(payload: RegisterClientRequest, request: Request) -> dict[str, Any]:
+    """RFC 7591 dynamic registration so a client can connect without pre-shared setup."""
+    try:
+        client = oauth_store_for(request).register_client(client_name=payload.client_name, redirect_uris=payload.redirect_uris)
+    except OAuthError as error:
+        return JSONResponse(status_code=error.status_code, content={"error": error.code, "error_description": error.description})
+    return {**client, "token_endpoint_auth_method": "none", "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"]}
+
+
+@app.get("/oauth/authorize", include_in_schema=False, tags=["oauth"])
+def authorize_page(request: Request) -> HTMLResponse:
+    """Consent screen: the one place a human must appear in the connect flow."""
+    params = request.query_params
+    settings = request.app.state.settings
+    client = oauth_store_for(request).client(params.get("client_id", ""))
+    redirect_uri = params.get("redirect_uri", "")
+    problem = None
+    if client is None:
+        problem = "This application is not registered with org.system."
+    elif redirect_uri not in client["redirect_uris"]:
+        # Never redirect to an unregistered URI, not even to report the error.
+        problem = "This application asked to be sent to an address it did not register."
+    elif params.get("response_type") != "code":
+        problem = "org.system only supports the authorization code flow."
+    elif params.get("code_challenge_method", "S256") != "S256" or not params.get("code_challenge"):
+        problem = "This application must use PKCE with S256."
+    context = json.dumps({
+        "client_name": (client or {}).get("client_name", "Unknown client"),
+        "client_id": params.get("client_id", ""),
+        "redirect_uri": redirect_uri,
+        "state": params.get("state", ""),
+        "scope": params.get("scope") or " ".join(SUPPORTED_SCOPES),
+        "code_challenge": params.get("code_challenge", ""),
+        "google_client_id": settings.google_client_id,
+        "demo": settings.is_demo,
+        "problem": problem,
+    })
+    page = (Path(__file__).resolve().parents[2] / "frontend" / "authorize.html").read_text(encoding="utf-8")
+    return HTMLResponse(page.replace("__ORG_SYSTEM_AUTHORIZE_CONTEXT__", context))
+
+
+@app.post("/oauth/authorize/consent", include_in_schema=False, tags=["oauth"])
+def authorize_consent(payload: OAuthConsentRequest, request: Request) -> dict[str, Any]:
+    """Verify the person, then mint a code bound to their chosen organization."""
+    settings = request.app.state.settings
+    store = store_for(request)
+    oauth = oauth_store_for(request)
+    client = oauth.client(payload.client_id)
+    if client is None or payload.redirect_uri not in client["redirect_uris"]:
+        raise HTTPException(status_code=400, detail="This application is not registered for that redirect address.")
+    if settings.is_demo:
+        identity = Identity("demo@org.system", "Demo User", "admin", "demo")
+        # The demo user must exist and be a member like anyone else, otherwise the
+        # token it is about to receive would not resolve to a person.
+        store.upsert_user(email=identity.email, display_name=identity.display_name, role="admin")
+        store.add_member(org_id=store.default_organization()["id"], email=identity.email, role="admin")
+    else:
+        identity = verify_google(payload.credential, settings)
+        allowlisted = store.member_is_allowed(email=identity.email, configured_emails=settings.admin_emails | settings.allowed_emails)
+        if not settings.is_public_trial and not allowlisted and not store.organizations_for(identity.email) and not settings.org_self_serve:
+            raise HTTPException(status_code=403, detail="Your Google account has not been added to this org.system team.")
+        store.upsert_user(email=identity.email, display_name=identity.display_name, role=identity.role)
+        if (allowlisted or settings.is_public_trial) and not store.organizations_for(identity.email):
+            store.add_member(org_id=store.default_organization()["id"], email=identity.email, role=identity.role)
+    memberships = store.organizations_for(identity.email) if not settings.is_demo else [{**store.default_organization(), "role": "admin", "status": "active"}]
+    if not payload.org_id:
+        # First round trip: tell the page who signed in and which memories they may connect.
+        return {"stage": "choose_organization", "user": {"email": identity.email, "display_name": identity.display_name}, "organizations": memberships}
+    if not any(org["id"] == payload.org_id for org in memberships):
+        raise HTTPException(status_code=403, detail="You are not a member of that organization.")
+    code = oauth.issue_code(
+        client_id=payload.client_id, redirect_uri=payload.redirect_uri, code_challenge=payload.code_challenge,
+        email=identity.email, org_id=payload.org_id, scope=payload.scope,
+    )
+    location = redirect_with(payload.redirect_uri, {"code": code, "state": payload.state} if payload.state else {"code": code})
+    return {"stage": "granted", "redirect_to": location}
+
+
+@app.post("/oauth/token", include_in_schema=False, tags=["oauth"])
+async def oauth_token(request: Request) -> JSONResponse:
+    """Token endpoint. Accepts form encoding per the spec, and JSON for convenience."""
+    body: dict[str, Any] = {}
+    if "application/json" in request.headers.get("content-type", ""):
+        body = await request.json()
+    else:
+        body = dict(await request.form())
+    oauth = oauth_store_for(request)
+    try:
+        grant_type = str(body.get("grant_type", ""))
+        client_id = str(body.get("client_id", ""))
+        if oauth.client(client_id) is None:
+            raise OAuthError("invalid_client", "That client is not registered.", 401)
+        if grant_type == "authorization_code":
+            granted = oauth.consume_code(
+                code=str(body.get("code", "")), client_id=client_id,
+                redirect_uri=str(body.get("redirect_uri", "")), verifier=str(body.get("code_verifier", "")),
+            )
+            tokens = oauth.issue_tokens(client_id=client_id, email=granted["email"], org_id=granted["org_id"], scope=granted["scope"])
+        elif grant_type == "refresh_token":
+            tokens = oauth.rotate_refresh_token(refresh_token=str(body.get("refresh_token", "")), client_id=client_id)
+        else:
+            raise OAuthError("unsupported_grant_type", "Use authorization_code or refresh_token.")
+    except OAuthError as error:
+        return JSONResponse(status_code=error.status_code, content={"error": error.code, "error_description": error.description})
+    return JSONResponse(content=tokens, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/oauth/revoke", include_in_schema=False, tags=["oauth"])
+async def oauth_revoke(request: Request) -> JSONResponse:
+    body = dict(await request.form()) if "application/json" not in request.headers.get("content-type", "") else await request.json()
+    identity = oauth_store_for(request).identity_for_access_token(str(body.get("token", "")))
+    if identity:
+        oauth_store_for(request).revoke_everything_for(identity.email)
+    # RFC 7009: revocation always answers 200 so a token cannot be probed for existence.
+    return JSONResponse(content={})
+
+
+@app.get("/api/auth/connections", tags=["auth"])
+def list_connections(request: Request) -> dict[str, Any]:
+    identity, org_id = require_org(request)
+    return {"connections": oauth_store_for(request).connections(email=identity.email, org_id=org_id)}
+
+
+@app.delete("/api/auth/connections/{connection_id}", tags=["auth"])
+def revoke_connection(connection_id: str, request: Request) -> dict[str, bool]:
+    identity, _ = require_org(request)
+    if not oauth_store_for(request).revoke_connection(connection_id=connection_id, email=identity.email):
+        raise HTTPException(status_code=404, detail="Active connection not found.")
+    return {"revoked": True}
+
+
 @app.get("/api/auth/config", tags=["auth"])
 def auth_config(request: Request) -> dict[str, Any]:
     settings = request.app.state.settings
@@ -304,10 +476,28 @@ def google_sign_in(payload: GoogleCredentialRequest, request: Request) -> dict[s
         raise HTTPException(status_code=400, detail="Google sign-in is disabled in local demo mode.")
     identity = verify_google(payload.credential, settings)
     store = store_for(request)
-    if not settings.is_public_trial and not store.member_is_allowed(email=identity.email, configured_emails=settings.admin_emails | settings.allowed_emails):
+    allowlisted = store.member_is_allowed(email=identity.email, configured_emails=settings.admin_emails | settings.allowed_emails)
+    memberships = store.organizations_for(identity.email)
+    if not settings.is_public_trial and not allowlisted and not memberships and not settings.org_self_serve:
         raise HTTPException(status_code=403, detail="Your Google account has not been added to this org.system team.")
     store.upsert_user(email=identity.email, display_name=identity.display_name, role=identity.role)
-    return {"access_token": issue_session(identity, settings), "token_type": "bearer", "user": identity.__dict__}
+    if memberships:
+        org_id: str | None = memberships[0]["id"]
+        identity = Identity(email=identity.email, display_name=identity.display_name, role=memberships[0]["role"], auth_kind=identity.auth_kind, org_id=org_id)
+    elif allowlisted or settings.is_public_trial:
+        # Existing allowlisted employees and public-trial users land in the organization
+        # their records already belong to, so nothing they captured disappears.
+        org_id = store.default_organization()["id"]
+        store.add_member(org_id=org_id, email=identity.email, role=identity.role)
+        identity = Identity(email=identity.email, display_name=identity.display_name, role=identity.role, auth_kind=identity.auth_kind, org_id=org_id)
+    else:
+        # Signed in, but with no organization yet: the client must create or join one.
+        org_id = None
+    return {
+        "access_token": issue_session(identity, settings), "token_type": "bearer", "user": identity.__dict__,
+        "organizations": store.organizations_for(identity.email),
+        "needs_organization": org_id is None,
+    }
 
 
 @app.get("/api/auth/me", tags=["auth"])
@@ -315,32 +505,120 @@ def current_identity(request: Request) -> dict[str, Any]:
     return {"user": require_identity(request).__dict__}
 
 
-@app.post("/api/auth/mcp-token", tags=["auth"])
-def create_mcp_token(payload: MCPTokenRequest, request: Request) -> dict[str, str]:
+def _session_for_org(identity: Identity, org_id: str, request: Request) -> dict[str, Any]:
+    """Re-issue the browser session bound to an organization and its membership role."""
+    store = store_for(request)
+    membership = store.membership_for(org_id=org_id, email=identity.email)
+    if membership is None or membership["status"] != "active":
+        raise HTTPException(status_code=403, detail="You are not an active member of that organization.")
+    scoped = Identity(email=identity.email, display_name=identity.display_name, role=membership["role"], auth_kind=identity.auth_kind, org_id=org_id)
+    organization = store.get_organization(org_id)
+    return {"access_token": issue_session(scoped, request.app.state.settings), "token_type": "bearer", "user": scoped.__dict__, "organization": organization}
+
+
+@app.get("/api/orgs", tags=["organization"])
+def my_organizations(request: Request) -> dict[str, Any]:
     identity = require_identity(request)
-    settings = request.app.state.settings
-    if settings.is_demo:
-        return {"token_id": "demo", "token": "demo", "warning": "Local demo token only; do not use it in cloud mode.", "codex_url": f"{settings.public_url}/mcp/"}
+    return {"organizations": store_for(request).organizations_for(identity.email), "active_org_id": identity.org_id}
+
+
+@app.post("/api/orgs", status_code=201, tags=["organization"])
+def create_organization(payload: CreateOrganizationRequest, request: Request) -> dict[str, Any]:
+    identity = require_identity(request)
     store = store_for(request)
     store.upsert_user(email=identity.email, display_name=identity.display_name, role=identity.role)
-    raw_token = new_machine_token()
-    token_id = store.create_mcp_token(owner_email=identity.email, label=payload.label, raw_token=raw_token)
-    return {"token_id": token_id, "token": raw_token, "warning": "Copy this token now. It is shown only once.", "codex_url": f"{settings.public_url}/mcp/"}
+    try:
+        organization = store.create_organization(name=payload.name, created_by=identity.email)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    session = _session_for_org(identity, organization["id"], request)
+    return {"organization": organization, **session, "message": "You are the first administrator of this organization."}
 
 
-@app.get("/api/auth/mcp-tokens", tags=["auth"])
-def list_mcp_tokens(request: Request) -> dict[str, Any]:
+@app.post("/api/orgs/join", tags=["organization"])
+def join_organization(payload: JoinOrganizationRequest, request: Request) -> dict[str, Any]:
     identity = require_identity(request)
-    return {"tokens": store_for(request).list_mcp_tokens(owner_email=None if identity.role == "admin" else identity.email)}
+    store = store_for(request)
+    store.upsert_user(email=identity.email, display_name=identity.display_name, role=identity.role)
+    try:
+        organization = store.redeem_invite(code=payload.code.strip(), email=identity.email)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    session = _session_for_org(identity, organization["id"], request)
+    return {"organization": organization, **session, "message": f"You joined {organization['name']}."}
 
 
-@app.delete("/api/auth/mcp-tokens/{token_id}", tags=["auth"])
-def revoke_mcp_token(token_id: str, request: Request) -> dict[str, bool]:
+@app.post("/api/orgs/{org_id}/activate", tags=["organization"])
+def activate_organization(org_id: str, request: Request) -> dict[str, Any]:
+    """Switch the signed-in browser session to another organization the user belongs to."""
     identity = require_identity(request)
-    revoked = store_for(request).revoke_mcp_token(token_id=token_id, owner_email=None if identity.role == "admin" else identity.email)
-    if not revoked:
-        raise HTTPException(status_code=404, detail="Active Codex connection not found.")
+    if store_for(request).get_organization(org_id) is None:
+        raise HTTPException(status_code=404, detail="That organization does not exist.")
+    return _session_for_org(identity, org_id, request)
+
+
+@app.get("/api/orgs/{org_id}/members", tags=["organization"])
+def organization_members(org_id: str, request: Request) -> dict[str, Any]:
+    """Who is in this organization, how much each has contributed, and how often it was reused."""
+    identity, active_org = require_org(request)
+    if org_id != active_org:
+        raise HTTPException(status_code=403, detail="Switch to that organization before reading its members.")
+    members = store_for(request).org_members(org_id)
+    return {
+        "organization": store_for(request).get_organization(org_id),
+        "members": members,
+        "totals": {
+            "members": len(members),
+            "experiences_contributed": sum(member["experiences_contributed"] for member in members),
+            "verified_contributions": sum(member["verified_contributions"] for member in members),
+            "times_reused": sum(member["times_reused_by_others"] for member in members),
+        },
+    }
+
+
+@app.get("/api/orgs/{org_id}/invites", tags=["organization"])
+def list_organization_invites(org_id: str, request: Request) -> dict[str, Any]:
+    identity, active_org = require_org(request)
+    if org_id != active_org or identity.role != "admin":
+        raise HTTPException(status_code=403, detail="Only an administrator of this organization may read its invites.")
+    return {"invites": store_for(request).list_invites(org_id)}
+
+
+@app.post("/api/orgs/{org_id}/invites", status_code=201, tags=["organization"])
+def create_organization_invite(org_id: str, payload: CreateInviteRequest, request: Request) -> dict[str, Any]:
+    identity, active_org = require_org(request)
+    if org_id != active_org or identity.role != "admin":
+        raise HTTPException(status_code=403, detail="Only an administrator of this organization may create invites.")
+    try:
+        invite = store_for(request).create_invite(org_id=org_id, created_by=identity.email, ttl_hours=payload.ttl_hours, max_uses=payload.max_uses)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    settings = request.app.state.settings
+    return {"invite": invite, "join_url": f"{settings.public_url}/?invite={invite['code']}", "warning": "Anyone with this code can join and read verified team memory."}
+
+
+@app.delete("/api/orgs/{org_id}/invites/{code}", tags=["organization"])
+def revoke_organization_invite(org_id: str, code: str, request: Request) -> dict[str, bool]:
+    identity, active_org = require_org(request)
+    if org_id != active_org or identity.role != "admin":
+        raise HTTPException(status_code=403, detail="Only an administrator of this organization may revoke invites.")
+    if not store_for(request).revoke_invite(code=code, org_id=org_id):
+        raise HTTPException(status_code=404, detail="That invite is not active.")
     return {"revoked": True}
+
+
+@app.delete("/api/orgs/{org_id}/members/{email}", tags=["organization"])
+def remove_organization_member(org_id: str, email: str, request: Request) -> dict[str, bool]:
+    identity, active_org = require_org(request)
+    if org_id != active_org or identity.role != "admin":
+        raise HTTPException(status_code=403, detail="Only an administrator of this organization may remove members.")
+    if email.strip().lower() == identity.email:
+        raise HTTPException(status_code=422, detail="You cannot remove your own membership.")
+    if not store_for(request).remove_member(org_id=org_id, email=email):
+        raise HTTPException(status_code=404, detail="That person is not a member of this organization.")
+    # Leaving an organization must also end any AI client still acting inside it.
+    oauth_store_for(request).revoke_everything_for(email.strip().lower())
+    return {"removed": True}
 
 
 @app.get("/api/admin/members", tags=["admin"])
@@ -375,8 +653,8 @@ def deprovision_member(email: str, request: Request) -> dict[str, bool]:
 
 @app.get("/api/experiences", tags=["experience"])
 def experiences(request: Request, include_nonserveable: bool = True) -> dict[str, Any]:
-    identity = require_identity(request)
-    items = store_for(request).list_experiences(include_nonserveable=include_nonserveable, consumer=None if identity.role == "admin" else identity.email)
+    identity, org_id = require_org(request)
+    items = store_for(request).list_experiences(include_nonserveable=include_nonserveable, consumer=None if identity.role == "admin" else identity.email, org_id=org_id)
     if request.app.state.settings.is_public_trial:
         items = [item for item in items if actor_key(item) == identity.email]
     elif identity.role != "admin":
@@ -386,12 +664,13 @@ def experiences(request: Request, include_nonserveable: bool = True) -> dict[str
 
 @app.post("/api/capture", status_code=201, tags=["capture"])
 def capture(payload: CaptureRequest, request: Request) -> dict[str, Any]:
-    identity = require_identity(request)
+    identity, org_id = require_org(request)
     if not payload.consent:
         raise HTTPException(status_code=422, detail="Capture requires explicit consent.")
     capture_data = payload.model_dump()
     capture_data["actor"] = actor_for(identity, payload.actor, request)
     capture_data["visibility"] = visibility_for(request, payload.visibility)
+    capture_data["org_id"] = org_id
     experience = store_for(request).create_candidate(capture_data)
     return {"experience": experience, "next_action": (
         "Verify the candidate before it can be served to your future AI requests."
@@ -402,7 +681,7 @@ def capture(payload: CaptureRequest, request: Request) -> dict[str, Any]:
 
 @app.post("/api/distill", status_code=201, tags=["capture"])
 def distill_trace(payload: DistillRequest, request: Request) -> dict[str, Any]:
-    identity = require_identity(request)
+    identity, org_id = require_org(request)
     if not payload.consent:
         raise HTTPException(status_code=422, detail="Distillation requires explicit capture consent.")
     actor = actor_for(identity, payload.actor, request)
@@ -418,6 +697,7 @@ def distill_trace(payload: DistillRequest, request: Request) -> dict[str, Any]:
         "consent": payload.consent,
         "outcome": distilled["outcome"],
         "domain_extension": domain_extension_for(distilled),
+        "org_id": org_id,
     })
     return {"experience": candidate, "distilled": distilled, "llm_mode": request.app.state.settings.llm_mode}
 
@@ -475,10 +755,10 @@ def ai_judge_experience(experience_id: str, request: Request) -> dict[str, Any]:
 
 @app.post("/api/recall", tags=["serve"])
 def recall(payload: RecallRequest, request: Request) -> dict[str, Any]:
-    identity = require_identity(request)
+    identity, org_id = require_org(request)
     recall_data = payload.model_dump()
     recall_data["consumer"] = identity.email
-    receipts = store_for(request).recall(**recall_data, personal_only=request.app.state.settings.is_public_trial)
+    receipts = store_for(request).recall(**recall_data, personal_only=request.app.state.settings.is_public_trial, org_id=org_id)
     return {
         "query": payload.query,
         "consumer": identity.display_name,
@@ -490,7 +770,7 @@ def recall(payload: RecallRequest, request: Request) -> dict[str, Any]:
 @app.post("/api/assist", tags=["serve"])
 def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
     """Conversational demo boundary used by Sarah, Tom, and Mei."""
-    identity = require_identity(request)
+    identity, org_id = require_org(request)
     store = store_for(request)
     llm: LLMClient = request.app.state.llm
     intent = (
@@ -512,6 +792,7 @@ def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
             "consent": True,
             "outcome": distilled["outcome"],
             "domain_extension": domain_extension_for(distilled),
+            "org_id": org_id,
         })
         verified = store.verify(candidate["id"], verify(candidate, {
             "method": "outcome_signal", "evidence_confirmed": True,
@@ -531,7 +812,7 @@ def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
         return {"answer": answer, "intent": "capture", "experience": verified, "distilled": distilled, "llm_mode": llm.mode}
 
     consumer = actor_for(identity, payload.title, request)["id"]
-    receipts = store.recall(query=payload.message, consumer=consumer, limit=3, record_usage=payload.record_usage, personal_only=request.app.state.settings.is_public_trial)
+    receipts = store.recall(query=payload.message, consumer=consumer, limit=3, record_usage=payload.record_usage, personal_only=request.app.state.settings.is_public_trial, org_id=org_id)
     if not receipts:
         if intent == "general":
             recent = "\n".join(
@@ -591,7 +872,7 @@ def assist(payload: AssistRequest, request: Request) -> dict[str, Any]:
 
 @app.post("/api/gateway/events", status_code=201, tags=["connection"])
 def gateway_event(payload: GatewayEvent, request: Request) -> dict[str, Any]:
-    identity = require_identity(request)
+    identity, org_id = require_org(request)
     if not payload.consent:
         raise HTTPException(status_code=422, detail="Gateway event was not captured because consent is disabled.")
     store = store_for(request)
@@ -609,6 +890,7 @@ def gateway_event(payload: GatewayEvent, request: Request) -> dict[str, Any]:
         "rationale": distilled["rationale"], "visibility": visibility_for(request, payload.visibility), "consent": payload.consent,
         "outcome": "success" if payload.succeeded else distilled["outcome"],
         "domain_extension": domain_extension_for(distilled, gateway_session_id=payload.session_id),
+        "org_id": org_id,
     })
     experience = store.verify(candidate["id"], verify(candidate, {
         "method": "outcome_signal", "evidence_confirmed": payload.succeeded,
@@ -625,28 +907,29 @@ def gateway_event(payload: GatewayEvent, request: Request) -> dict[str, Any]:
 
 @app.get("/api/dashboard/user/{actor}", tags=["dashboard"])
 def user_dashboard(actor: str, request: Request) -> dict[str, Any]:
-    identity = require_identity(request)
+    identity, org_id = require_org(request)
     if not request.app.state.settings.is_demo and identity.role != "admin" and actor.lower() != identity.display_name.lower():
         raise HTTPException(status_code=403, detail="Employees can view only their own dashboard.")
-    return store_for(request).user_dashboard(actor)
+    return store_for(request).user_dashboard(actor, org_id=org_id)
 
 
 @app.get("/api/dashboard/team", tags=["dashboard"])
 def team_dashboard(request: Request) -> dict[str, Any]:
-    identity = require_identity(request)
-    return store_for(request).team_dashboard(consumer=None if identity.role == "admin" else identity.email, personal_only=request.app.state.settings.is_public_trial)
+    identity, org_id = require_org(request)
+    return store_for(request).team_dashboard(consumer=None if identity.role == "admin" else identity.email, personal_only=request.app.state.settings.is_public_trial, org_id=org_id)
 
 
 @app.get("/api/dashboard/admin", tags=["dashboard"])
 def admin_dashboard(request: Request) -> dict[str, Any]:
+    _, org_id = require_org(request)
     require_admin(request)
-    return store_for(request).admin_dashboard()
+    return store_for(request).admin_dashboard(org_id=org_id)
 
 
 @app.get("/api/dashboard/impact", tags=["dashboard"])
 def impact_dashboard(request: Request) -> dict[str, Any]:
-    identity = require_identity(request)
-    return store_for(request).impact_dashboard(consumer=identity.email if request.app.state.settings.is_public_trial else None)
+    identity, org_id = require_org(request)
+    return store_for(request).impact_dashboard(consumer=identity.email if request.app.state.settings.is_public_trial else None, org_id=org_id)
 
 
 @app.post("/api/demo/reset", tags=["system"])

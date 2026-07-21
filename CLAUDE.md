@@ -1,12 +1,23 @@
-# org.system — mandatory team-memory rules for Codex
+# org.system — mandatory team-memory rules for Claude Code
 
 These rules are not optional guidance. Any AI assistant working in this repository
 must use the `org_system` MCP tools at the boundaries described below. An assistant
 that edits code, plans work, or answers a work question without consulting
 organizational memory is operating incorrectly, even if its answer is otherwise good.
 
-`CLAUDE.md` carries the same policy for Claude Code. Keep the two files in agreement
-when either one changes.
+`AGENTS.md` carries the same policy for Codex. Keep the two files in agreement when
+either one changes.
+
+## Connecting
+
+The server is standard Streamable HTTP MCP, so it is not Codex-specific:
+
+```bash
+claude mcp add --transport http org_system https://org-system-6hqysxhb3q-uk.a.run.app/mcp/
+```
+
+Confirm with `/mcp`. If the tools are not listed, follow Rule 5 rather than working
+around the missing connection.
 
 ## Rule 1 — Check memory at the start of the session
 
@@ -23,9 +34,8 @@ Never begin work while silently skipping this step.
 ## Rule 2 — Check before expensive or risky work
 
 Before resource-heavy, novel, debugging, migration, deployment, or incident work,
-call `avoid_duplicate_work` with the user's natural-language proposal. The shared
-service derives employee identity from the connection, so no `consumer` argument is
-needed over MCP.
+call `avoid_duplicate_work` with the user's natural-language proposal. Identity comes
+from the connection, so no `consumer` argument is needed over MCP.
 
 - If a verified match is returned, show the attribution receipt and adapt the plan
   before spending meaningful compute, tokens, or engineering time.

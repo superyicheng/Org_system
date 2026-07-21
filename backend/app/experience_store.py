@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+import secrets
 import uuid
 from collections import Counter, defaultdict
 from contextlib import contextmanager
@@ -20,7 +21,6 @@ from jsonschema import Draft202012Validator
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
-from app.auth import token_digest
 from app.config import Settings
 from app.seed_data import demo_experiences
 from app.semantic_index import cosine, embed
@@ -40,6 +40,17 @@ SCHEMA_VALIDATOR = Draft202012Validator(json.loads(SCHEMA_PATH.read_text(encodin
 STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "that", "the", "to", "with",
 }
+
+# Cost dimensions a reused negative result can avoid, mapped to their dashboard
+# field. Work is not only GPU-shaped: bench time is a real, scarce resource, and
+# a screen that burns six wet-lab days deserves the same accounting as a job that
+# burns GPU-hours. Add a dimension here and it flows to the dashboards and lineage.
+AVOIDED_COST_EVIDENCE = {
+    "gpu_hours": "gpu_hours_avoided",
+    "wet_lab_days": "wet_lab_days_avoided",
+}
+
+AVOIDED_COST_UNITS = {"gpu_hours": "GPUh", "wet_lab_days": "wet-lab days"}
 
 
 def now() -> str:
@@ -61,6 +72,10 @@ def validate_asset(experience: dict[str, Any]) -> None:
 
 def tokens(value: str) -> set[str]:
     return {word for word in re.findall(r"[a-z0-9][a-z0-9_-]{1,}", value.lower()) if word not in STOP_WORDS}
+
+
+def slugify(value: str) -> str:
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", value.strip().lower())).strip("-")
 
 
 def actor_name(item: dict[str, Any]) -> str:
@@ -164,11 +179,26 @@ class ExperienceStore:
             "CREATE TABLE IF NOT EXISTS experience_vectors (experience_id TEXT PRIMARY KEY, vector TEXT NOT NULL, indexed_at TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS gateway_events (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, actor TEXT NOT NULL, event_type TEXT NOT NULL, tool_name TEXT NOT NULL, tool_call TEXT NOT NULL, result TEXT NOT NULL, succeeded INTEGER NOT NULL, happened_at TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, display_name TEXT NOT NULL, role TEXT NOT NULL, updated_at TEXT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS mcp_tokens (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, owner_email TEXT NOT NULL, label TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)",
+            "CREATE TABLE IF NOT EXISTS organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, created_by TEXT NOT NULL, created_at TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS memberships (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, joined_at TEXT NOT NULL, UNIQUE (org_id, email))",
+            "CREATE TABLE IF NOT EXISTS org_invites (code TEXT PRIMARY KEY, org_id TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, max_uses INTEGER NOT NULL, used_count INTEGER NOT NULL DEFAULT 0, revoked_at TEXT)",
         ]
         with self._connection() as conn:
             for statement in statements:
                 conn.execute(text(statement))
+        self._migrate_organizations()
+
+    def _migrate_organizations(self) -> None:
+        """Add org ownership to existing deployments without rewriting stored assets.
+
+        org_id is a column rather than a payload field on purpose: the content hash is
+        a receipt over the experience itself, and moving a record between organizations
+        must not invalidate the receipt teammates have already seen.
+        """
+        with self._connection() as conn:
+            existing = conn.execute(text("SELECT * FROM experiences LIMIT 1")).keys()
+            if "org_id" not in set(existing):
+                conn.execute(text("ALTER TABLE experiences ADD COLUMN org_id TEXT"))
 
     def close(self) -> None:
         """Release pooled database connections during tests and Cloud Run shutdown."""
@@ -180,16 +210,18 @@ class ExperienceStore:
         for item in demo_experiences():
             self.save(item, event_type="seeded", detail="Transparent local demo fixture")
 
-    def save(self, experience: dict[str, Any], *, event_type: str, detail: str) -> dict[str, Any]:
+    def save(self, experience: dict[str, Any], *, event_type: str, detail: str, org_id: str | None = None) -> dict[str, Any]:
         experience = _normalize_asset(dict(experience))
         validate_asset(experience)
         serialized = json.dumps(experience, sort_keys=True)
         digest = content_hash(experience)
         with self._connection() as conn:
-            values = {"id": experience["id"], "payload": serialized, "content_hash": digest, "captured_at": experience["captured_at"], "created_at": now()}
-            updated = conn.execute(text("UPDATE experiences SET payload=:payload, content_hash=:content_hash, captured_at=:captured_at, created_at=:created_at WHERE id=:id"), values)
+            values = {"id": experience["id"], "payload": serialized, "content_hash": digest, "captured_at": experience["captured_at"], "created_at": now(), "org_id": org_id}
+            # COALESCE keeps an existing owner when a re-save (for example verification)
+            # does not carry the organization with it.
+            updated = conn.execute(text("UPDATE experiences SET payload=:payload, content_hash=:content_hash, captured_at=:captured_at, created_at=:created_at, org_id=COALESCE(:org_id, org_id) WHERE id=:id"), values)
             if not updated.rowcount:
-                conn.execute(text("INSERT INTO experiences (id, payload, content_hash, captured_at, created_at) VALUES (:id, :payload, :content_hash, :captured_at, :created_at)"), values)
+                conn.execute(text("INSERT INTO experiences (id, payload, content_hash, captured_at, created_at, org_id) VALUES (:id, :payload, :content_hash, :captured_at, :created_at, :org_id)"), values)
             conn.execute(text("INSERT INTO capture_events (id, experience_id, event_type, detail, happened_at) VALUES (:id, :experience_id, :event_type, :detail, :happened_at)"), {"id": uuid.uuid4().hex, "experience_id": experience["id"], "event_type": event_type, "detail": detail, "happened_at": now()})
             searchable = " ".join([
                 task_goal(experience), experience.get("trace_summary", ""),
@@ -213,9 +245,21 @@ class ExperienceStore:
             row = conn.execute(text("SELECT content_hash FROM experiences WHERE id=:id"), {"id": experience_id}).mappings().first()
         return str(row["content_hash"]) if row else None
 
-    def list_experiences(self, *, include_nonserveable: bool = True, consumer: str | None = None) -> list[dict[str, Any]]:
+    def list_experiences(self, *, include_nonserveable: bool = True, consumer: str | None = None, org_id: str | None = None) -> list[dict[str, Any]]:
+        """List stored experiences.
+
+        org_id=None means "do not filter by organization" and is intended for admin,
+        migration, and test callers. Every request that serves one member's memory must
+        pass an explicit org_id, otherwise records leak across organizations.
+        """
+        query = "SELECT payload FROM experiences"
+        params: dict[str, Any] = {}
+        if org_id is not None:
+            query += " WHERE org_id=:org_id"
+            params["org_id"] = org_id
+        query += " ORDER BY captured_at DESC"
         with self._connection() as conn:
-            rows = conn.execute(text("SELECT payload FROM experiences ORDER BY captured_at DESC")).mappings().all()
+            rows = conn.execute(text(query), params).mappings().all()
         items = [json.loads(row["payload"]) for row in rows]
         if not include_nonserveable:
             items = [item for item in items if item["status"] == "verified"]
@@ -244,7 +288,7 @@ class ExperienceStore:
             "captured_at": now(),
             "created_at": now(),
         }
-        return self.save(candidate, event_type="captured", detail=f"Automatic trace capture from {payload['tool_name']}")
+        return self.save(candidate, event_type="captured", detail=f"Automatic trace capture from {payload['tool_name']}", org_id=payload.get("org_id"))
 
     def verify(self, experience_id: str, result: dict[str, Any]) -> dict[str, Any] | None:
         experience = self.get(experience_id)
@@ -259,11 +303,11 @@ class ExperienceStore:
         visibility = item["visibility"]
         return bool(visibility["consent"].get("opt_in")) and (visibility["scope"] in {"team", "org"} or actor_key(item) == consumer.lower())
 
-    def recall(self, *, query: str, consumer: str, limit: int, record_usage: bool, personal_only: bool = False) -> list[dict[str, Any]]:
+    def recall(self, *, query: str, consumer: str, limit: int, record_usage: bool, personal_only: bool = False, org_id: str | None = None) -> list[dict[str, Any]]:
         query_terms = tokens(query)
         query_vector = embed(query)
         candidates = [
-            item for item in self.list_experiences(include_nonserveable=False)
+            item for item in self.list_experiences(include_nonserveable=False, org_id=org_id)
             if self._permitted(item, consumer) and (not personal_only or actor_key(item) == consumer.lower())
         ]
         with self._connection() as conn:
@@ -326,8 +370,8 @@ class ExperienceStore:
                 conn.execute(text("UPDATE experiences SET payload=:payload WHERE id=:id"), {"payload": json.dumps(item, sort_keys=True), "id": experience_id})
             conn.execute(text("INSERT INTO usage_events (id, experience_id, consumer, query, served_at) VALUES (:id, :experience_id, :consumer, :query, :served_at)"), {"id": uuid.uuid4().hex, "experience_id": experience_id, "consumer": consumer, "query": query, "served_at": now()})
 
-    def user_dashboard(self, actor: str) -> dict[str, Any]:
-        items = self.list_experiences()
+    def user_dashboard(self, actor: str, *, org_id: str | None = None) -> dict[str, Any]:
+        items = self.list_experiences(org_id=org_id)
         mine = [item for item in items if actor_name(item).lower() == actor.lower()]
         with self._connection() as conn:
             usage_rows = conn.execute(text(
@@ -351,8 +395,8 @@ class ExperienceStore:
             "experiences": mine,
         }
 
-    def team_dashboard(self, *, consumer: str | None = None, personal_only: bool = False) -> dict[str, Any]:
-        items = self.list_experiences(consumer=consumer)
+    def team_dashboard(self, *, consumer: str | None = None, personal_only: bool = False, org_id: str | None = None) -> dict[str, Any]:
+        items = self.list_experiences(consumer=consumer, org_id=org_id)
         if consumer is not None:
             # An employee may see their own pending draft, but a teammate's
             # candidate is never surfaced as organizational knowledge.
@@ -375,12 +419,13 @@ class ExperienceStore:
             raw_consumer = str(row["consumer"])
             consumer_name = raw_consumer.split("@", 1)[0].replace(".", " ").replace("_", " ").title()
             evidence = item.get("domain_extension", {}).get("resource_evidence", {})
+            avoided = next(
+                (f"{float(evidence[key]):g} {unit} avoided" for key, unit in AVOIDED_COST_UNITS.items() if evidence.get(key) is not None),
+                None,
+            ) if item.get("outcome", {}).get("status") == "failure" else None
             value = (
-                f"{float(evidence['gpu_hours']):g} GPUh avoided"
-                if evidence.get("gpu_hours") is not None and item.get("outcome", {}).get("status") == "failure"
-                else f"{float(evidence['time_saved_minutes']):g} build min saved"
-                if evidence.get("time_saved_minutes") is not None
-                else "verified reuse"
+                avoided
+                or (f"{float(evidence['time_saved_minutes']):g} build min saved" if evidence.get("time_saved_minutes") is not None else "verified reuse")
             )
             inheritance_links.append({
                 "source": actor_name(item),
@@ -400,8 +445,8 @@ class ExperienceStore:
             "inheritance_links": inheritance_links,
         }
 
-    def admin_dashboard(self) -> dict[str, Any]:
-        items = self.list_experiences()
+    def admin_dashboard(self, *, org_id: str | None = None) -> dict[str, Any]:
+        items = self.list_experiences(org_id=org_id)
         status_counts = Counter(item["status"] for item in items)
         visibility_counts = Counter(item["visibility"]["scope"] for item in items)
         contributions = Counter(actor_name(item) for item in items)
@@ -457,27 +502,37 @@ class ExperienceStore:
                 })
         return {"id": event_id, "session_id": event["session_id"], "event_type": event["event_type"], "happened_at": happened_at}
 
-    def impact_dashboard(self, *, consumer: str | None = None) -> dict[str, Any]:
-        items = self.list_experiences()
+    def impact_dashboard(self, *, consumer: str | None = None, org_id: str | None = None) -> dict[str, Any]:
+        items = self.list_experiences(org_id=org_id)
         if consumer is not None:
             items = [item for item in items if actor_key(item) == consumer.lower()]
         reuse_events = sum(item.get("usage", {}).get("times_served", 0) for item in items)
-        avoided_gpu_hours = 0.0
+        avoided = dict.fromkeys(AVOIDED_COST_EVIDENCE, 0.0)
         build_minutes_saved = 0.0
         intercepted = 0
         for item in items:
             uses = item.get("usage", {}).get("times_served", 0)
+            if not uses:
+                continue
             evidence = item.get("domain_extension", {}).get("resource_evidence", {})
-            if uses and evidence.get("gpu_hours") is not None and item.get("outcome", {}).get("status") == "failure":
-                avoided_gpu_hours += float(evidence["gpu_hours"]) * uses
-                intercepted += uses
-            if uses and evidence.get("time_saved_minutes") is not None and item.get("outcome", {}).get("status") == "success":
+            status = item.get("outcome", {}).get("status")
+            if status == "failure":
+                # A reused negative result avoids whichever cost the work actually
+                # consumed. Wet-lab days count as much as GPU-hours; only the unit
+                # differs, and a job is intercepted once regardless of how many
+                # cost dimensions it recorded.
+                measured = [key for key in AVOIDED_COST_EVIDENCE if evidence.get(key) is not None]
+                for key in measured:
+                    avoided[key] += float(evidence[key]) * uses
+                if measured:
+                    intercepted += uses
+            elif status == "success" and evidence.get("time_saved_minutes") is not None:
                 build_minutes_saved += float(evidence["time_saved_minutes"]) * uses
         return {
             "verified_experiences": sum(item["status"] == "verified" for item in items),
             "reuse_events": reuse_events,
             "duplicate_jobs_intercepted": intercepted,
-            "gpu_hours_avoided": round(avoided_gpu_hours, 1),
+            **{field: round(avoided[key], 1) for key, field in AVOIDED_COST_EVIDENCE.items()},
             "build_minutes_saved": round(build_minutes_saved, 1),
             "method": "Recorded reuse events × verified resource evidence; demo fixtures are labelled.",
         }
@@ -527,40 +582,175 @@ class ExperienceStore:
             result = conn.execute(text("DELETE FROM users WHERE email=:email"), {"email": normalized})
         return bool(result.rowcount)
 
-    def create_mcp_token(self, *, owner_email: str, label: str, raw_token: str) -> str:
-        token_id = f"mcp-{uuid.uuid4().hex}"
-        with self._connection() as conn:
-            conn.execute(text("INSERT INTO mcp_tokens (id, token_hash, owner_email, label, created_at, revoked_at) VALUES (:id, :token_hash, :owner_email, :label, :created_at, NULL)"), {"id": token_id, "token_hash": token_digest(raw_token), "owner_email": owner_email, "label": label, "created_at": now()})
-        return token_id
-
-    def list_mcp_tokens(self, *, owner_email: str | None = None) -> list[dict[str, str | None]]:
-        query = "SELECT id, owner_email, label, created_at, revoked_at FROM mcp_tokens"
-        params: dict[str, str] = {}
-        if owner_email:
-            query += " WHERE owner_email=:owner_email"
-            params["owner_email"] = owner_email
-        query += " ORDER BY created_at DESC"
-        with self._connection() as conn:
-            rows = conn.execute(text(query), params).mappings().all()
-        return [dict(row) for row in rows]
-
-    def revoke_mcp_token(self, *, token_id: str, owner_email: str | None = None) -> bool:
-        query = "UPDATE mcp_tokens SET revoked_at=:revoked_at WHERE id=:id AND revoked_at IS NULL"
-        params: dict[str, str] = {"id": token_id, "revoked_at": now()}
-        if owner_email:
-            query += " AND owner_email=:owner_email"
-            params["owner_email"] = owner_email
-        with self._connection() as conn:
-            result = conn.execute(text(query), params)
-        return bool(result.rowcount)
-
-    def identity_for_mcp_token(self, digest: str) -> dict[str, str] | None:
-        with self._connection() as conn:
-            row = conn.execute(text("""SELECT u.email, u.display_name, u.role FROM mcp_tokens t
-                JOIN users u ON u.email=t.owner_email WHERE t.token_hash=:digest AND t.revoked_at IS NULL"""), {"digest": digest}).mappings().first()
-        return dict(row) if row else None
-
     def identity_for_email(self, email: str) -> dict[str, str] | None:
         with self._connection() as conn:
             row = conn.execute(text("SELECT email, display_name, role FROM users WHERE email=:email"), {"email": email}).mappings().first()
         return dict(row) if row else None
+
+    # ------------------------------------------------------------ organizations
+
+    def create_organization(self, *, name: str, created_by: str) -> dict[str, str]:
+        """Create an organization and make the creator its first admin."""
+        clean_name = name.strip()
+        if not 2 <= len(clean_name) <= 80:
+            raise ValueError("An organization name must be between 2 and 80 characters.")
+        slug = slugify(clean_name)
+        if not slug:
+            raise ValueError("An organization name must contain letters or numbers.")
+        owner = created_by.strip().lower()
+        org = {"id": f"org-{uuid.uuid4().hex[:12]}", "name": clean_name, "slug": slug, "created_by": owner, "created_at": now()}
+        with self._connection() as conn:
+            if conn.execute(text("SELECT 1 FROM organizations WHERE slug=:slug"), {"slug": slug}).first():
+                raise ValueError(f"An organization named '{clean_name}' already exists.")
+            conn.execute(text("INSERT INTO organizations (id, name, slug, created_by, created_at) VALUES (:id, :name, :slug, :created_by, :created_at)"), org)
+        self.add_member(org_id=org["id"], email=owner, role="admin")
+        return org
+
+    def get_organization(self, org_id: str) -> dict[str, str] | None:
+        with self._connection() as conn:
+            row = conn.execute(text("SELECT id, name, slug, created_by, created_at FROM organizations WHERE id=:id"), {"id": org_id}).mappings().first()
+        return dict(row) if row else None
+
+    def list_organizations(self) -> list[dict[str, str]]:
+        with self._connection() as conn:
+            rows = conn.execute(text("SELECT id, name, slug, created_by, created_at FROM organizations ORDER BY created_at")).mappings().all()
+        return [dict(row) for row in rows]
+
+    def default_organization(self, *, name: str = "Default organization", created_by: str = "system@org.system") -> dict[str, str]:
+        """Return the organization that pre-multi-org records and members belong to."""
+        with self._connection() as conn:
+            row = conn.execute(text("SELECT id, name, slug, created_by, created_at FROM organizations WHERE slug=:slug"), {"slug": "default"}).mappings().first()
+        if row:
+            return dict(row)
+        org = {"id": f"org-{uuid.uuid4().hex[:12]}", "name": name, "slug": "default", "created_by": created_by.strip().lower(), "created_at": now()}
+        with self._connection() as conn:
+            conn.execute(text("INSERT INTO organizations (id, name, slug, created_by, created_at) VALUES (:id, :name, :slug, :created_by, :created_at)"), org)
+        return org
+
+    def adopt_orphans(self) -> str:
+        """Move pre-multi-org experiences and users into the default org.
+
+        Safe to call repeatedly: it only touches rows whose org is still unset.
+        """
+        org_id = self.default_organization()["id"]
+        with self._connection() as conn:
+            conn.execute(text("UPDATE experiences SET org_id=:org_id WHERE org_id IS NULL"), {"org_id": org_id})
+            legacy = conn.execute(text("""SELECT u.email, u.role FROM users u
+                WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.email = u.email)""")).mappings().all()
+        for user in legacy:
+            self.add_member(org_id=org_id, email=str(user["email"]), role=str(user["role"]))
+        return org_id
+
+    def add_member(self, *, org_id: str, email: str, role: str = "employee", status: str = "active") -> dict[str, str]:
+        normalized = email.strip().lower()
+        if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+            raise ValueError("Provide a valid member email address.")
+        if role not in {"admin", "employee"}:
+            raise ValueError("A member role must be admin or employee.")
+        record = {"id": f"mem-{uuid.uuid4().hex[:12]}", "org_id": org_id, "email": normalized, "role": role, "status": status, "joined_at": now()}
+        with self._connection() as conn:
+            updated = conn.execute(text("UPDATE memberships SET role=:role, status=:status WHERE org_id=:org_id AND email=:email"), record)
+            if not updated.rowcount:
+                conn.execute(text("INSERT INTO memberships (id, org_id, email, role, status, joined_at) VALUES (:id, :org_id, :email, :role, :status, :joined_at)"), record)
+        return record
+
+    def remove_member(self, *, org_id: str, email: str) -> bool:
+        with self._connection() as conn:
+            result = conn.execute(text("DELETE FROM memberships WHERE org_id=:org_id AND email=:email"), {"org_id": org_id, "email": email.strip().lower()})
+        return bool(result.rowcount)
+
+    def membership_for(self, *, org_id: str, email: str) -> dict[str, str] | None:
+        with self._connection() as conn:
+            row = conn.execute(text("SELECT org_id, email, role, status, joined_at FROM memberships WHERE org_id=:org_id AND email=:email"), {"org_id": org_id, "email": email.strip().lower()}).mappings().first()
+        return dict(row) if row else None
+
+    def is_member(self, *, org_id: str, email: str) -> bool:
+        membership = self.membership_for(org_id=org_id, email=email)
+        return bool(membership and membership["status"] == "active")
+
+    def organizations_for(self, email: str) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(text("""SELECT o.id, o.name, o.slug, o.created_by, o.created_at, m.role, m.status, m.joined_at
+                FROM memberships m JOIN organizations o ON o.id = m.org_id
+                WHERE m.email=:email ORDER BY o.created_at"""), {"email": email.strip().lower()}).mappings().all()
+        return [dict(row) for row in rows]
+
+    def org_members(self, org_id: str) -> list[dict[str, Any]]:
+        """Members of an organization with how much each has contributed and how often it was reused."""
+        with self._connection() as conn:
+            rows = conn.execute(text("""SELECT m.email, m.role, m.status, m.joined_at, u.display_name
+                FROM memberships m LEFT JOIN users u ON u.email = m.email
+                WHERE m.org_id=:org_id ORDER BY m.role, m.email"""), {"org_id": org_id}).mappings().all()
+        items = self.list_experiences(org_id=org_id)
+        contributed: Counter[str] = Counter()
+        verified: Counter[str] = Counter()
+        reused: Counter[str] = Counter()
+        for item in items:
+            key = actor_key(item)
+            contributed[key] += 1
+            if item["status"] == "verified":
+                verified[key] += 1
+            reused[key] += int(item.get("usage", {}).get("times_served", 0))
+        members = []
+        for row in rows:
+            email = str(row["email"])
+            members.append({
+                "email": email,
+                "display_name": row["display_name"] or email.split("@", 1)[0],
+                "role": row["role"],
+                "status": row["status"],
+                "joined_at": row["joined_at"],
+                "experiences_contributed": contributed.get(email, 0),
+                "verified_contributions": verified.get(email, 0),
+                "times_reused_by_others": reused.get(email, 0),
+            })
+        return members
+
+    def create_invite(self, *, org_id: str, created_by: str, ttl_hours: int = 168, max_uses: int = 25) -> dict[str, Any]:
+        if not 1 <= ttl_hours <= 24 * 90:
+            raise ValueError("An invite must expire between 1 hour and 90 days from now.")
+        if not 1 <= max_uses <= 500:
+            raise ValueError("An invite must allow between 1 and 500 uses.")
+        invite = {
+            "code": f"inv_{secrets.token_urlsafe(18)}",
+            "org_id": org_id,
+            "created_by": created_by.strip().lower(),
+            "created_at": now(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=ttl_hours)).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "max_uses": max_uses,
+            "used_count": 0,
+        }
+        with self._connection() as conn:
+            conn.execute(text("""INSERT INTO org_invites (code, org_id, created_by, created_at, expires_at, max_uses, used_count, revoked_at)
+                VALUES (:code, :org_id, :created_by, :created_at, :expires_at, :max_uses, 0, NULL)"""), invite)
+        return invite
+
+    def list_invites(self, org_id: str) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(text("SELECT code, org_id, created_by, created_at, expires_at, max_uses, used_count, revoked_at FROM org_invites WHERE org_id=:org_id ORDER BY created_at DESC"), {"org_id": org_id}).mappings().all()
+        return [dict(row) for row in rows]
+
+    def revoke_invite(self, *, code: str, org_id: str) -> bool:
+        with self._connection() as conn:
+            result = conn.execute(text("UPDATE org_invites SET revoked_at=:revoked_at WHERE code=:code AND org_id=:org_id AND revoked_at IS NULL"), {"revoked_at": now(), "code": code, "org_id": org_id})
+        return bool(result.rowcount)
+
+    def redeem_invite(self, *, code: str, email: str) -> dict[str, str]:
+        """Join the inviting organization, or raise ValueError explaining why not."""
+        with self._connection() as conn:
+            row = conn.execute(text("SELECT code, org_id, expires_at, max_uses, used_count, revoked_at FROM org_invites WHERE code=:code"), {"code": code}).mappings().first()
+            if row is None:
+                raise ValueError("This invite code is not valid.")
+            if row["revoked_at"]:
+                raise ValueError("This invite has been revoked.")
+            if str(row["expires_at"]) < now():
+                raise ValueError("This invite has expired.")
+            if int(row["used_count"]) >= int(row["max_uses"]):
+                raise ValueError("This invite has already been used the maximum number of times.")
+            conn.execute(text("UPDATE org_invites SET used_count = used_count + 1 WHERE code=:code"), {"code": code})
+        org_id = str(row["org_id"])
+        self.add_member(org_id=org_id, email=email, role="employee")
+        organization = self.get_organization(org_id)
+        if organization is None:
+            raise ValueError("The inviting organization no longer exists.")
+        return organization

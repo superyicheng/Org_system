@@ -32,6 +32,10 @@ class Settings:
     openai_api_key: str = ""
     openai_model: str = "gpt-5.6-terra"
     reverify_interval_seconds: int = 3600
+    # Off by default so enabling multi-org support never silently opens an existing
+    # private deployment to every Google account. Set ORG_SELF_SERVE=true to let any
+    # verified user sign in and then create or join an organization by invite.
+    org_self_serve: bool = False
 
     @property
     def is_demo(self) -> bool:
@@ -79,6 +83,7 @@ def get_settings() -> Settings:
         openai_api_key=api_key,
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
         reverify_interval_seconds=max(60, int(os.getenv("ORG_SYSTEM_REVERIFY_SECONDS", "3600"))),
+        org_self_serve=os.getenv("ORG_SELF_SERVE", "").strip().lower() in {"1", "true", "yes", "on"},
     )
     if not settings.is_demo and (not settings.google_client_id or len(settings.session_secret) < 32):
         raise ValueError("Google and public cloud modes require GOOGLE_CLIENT_ID and a SESSION_SECRET of at least 32 characters.")

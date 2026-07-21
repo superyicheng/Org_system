@@ -268,7 +268,7 @@ The server exposes four tools. The recommended Codex configuration enables the t
 
 - `avoid_duplicate_work` — check a proposal before meaningful resource spend.
 - `recall_experience` — retrieve verified, visible experience with receipts.
-- `record_completed_work` — capture an evidence-backed completed lesson for verification.
+- `record_completed_work` — capture an evidence-backed completed lesson for verification. Pass `outcome="failure"` for a confirmed negative result; a reused failure is credited as avoided cost (GPU-hours or wet-lab days) on the impact dashboard.
 - `store_experience` — low-level candidate capture for integrations and administration.
 
 See [Codex employee setup](docs/CODEX_EMPLOYEE_SETUP.md) for token lifecycle and revocation.

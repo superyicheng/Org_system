@@ -3,7 +3,7 @@
 from typing import Any, Literal
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 VisibilityScope = Literal["private", "team", "org"]
@@ -85,9 +85,41 @@ class GoogleCredentialRequest(BaseModel):
     credential: str = Field(min_length=20, max_length=12000)
 
 
-class MCPTokenRequest(BaseModel):
-    label: str = Field(default="Codex laptop", min_length=1, max_length=120)
-
-
 class MemberInviteRequest(BaseModel):
     email: str = Field(min_length=5, max_length=320)
+
+
+class CreateOrganizationRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+
+
+class JoinOrganizationRequest(BaseModel):
+    code: str = Field(min_length=8, max_length=120)
+
+
+class CreateInviteRequest(BaseModel):
+    ttl_hours: int = Field(default=168, ge=1, le=24 * 90)
+    max_uses: int = Field(default=25, ge=1, le=500)
+
+
+class RegisterClientRequest(BaseModel):
+    """RFC 7591 dynamic client registration; unknown metadata fields are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    client_name: str = Field(default="MCP client", max_length=120)
+    redirect_uris: list[str] = Field(min_length=1, max_length=10)
+
+
+class OAuthConsentRequest(BaseModel):
+    """Consent submitted from the authorization page after Google sign-in."""
+
+    credential: str = Field(default="", max_length=12000)
+    client_id: str = Field(min_length=3, max_length=120)
+    redirect_uri: str = Field(min_length=3, max_length=2000)
+    code_challenge: str = Field(min_length=20, max_length=200)
+    code_challenge_method: Literal["S256"] = "S256"
+    state: str = Field(default="", max_length=2000)
+    scope: str = Field(default="org.read org.write", max_length=200)
+    org_id: str = Field(default="", max_length=120)
+    label: str = Field(default="", max_length=120)

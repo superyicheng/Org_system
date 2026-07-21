@@ -24,6 +24,9 @@ class Identity:
     display_name: str
     role: str
     auth_kind: str
+    # The organization this credential is currently acting in. None means the user is
+    # signed in but has not created or joined one yet, so no memory may be served.
+    org_id: str | None = None
 
 
 def _encode(value: bytes) -> str:
@@ -35,7 +38,7 @@ def _decode(value: str) -> bytes:
 
 
 def issue_session(identity: Identity, settings: Settings) -> str:
-    payload = {"email": identity.email, "display_name": identity.display_name, "role": identity.role, "exp": int((datetime.now(UTC) + timedelta(hours=8)).timestamp())}
+    payload = {"email": identity.email, "display_name": identity.display_name, "role": identity.role, "org_id": identity.org_id, "exp": int((datetime.now(UTC) + timedelta(hours=8)).timestamp())}
     encoded = _encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signature = _encode(hmac.new(settings.session_secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest())
     return f"oss_{encoded}.{signature}"
@@ -52,7 +55,7 @@ def decode_session(token: str, settings: Settings) -> Identity | None:
         payload = json.loads(_decode(encoded))
         if int(payload["exp"]) < int(datetime.now(UTC).timestamp()):
             return None
-        return Identity(email=payload["email"], display_name=payload["display_name"], role=payload["role"], auth_kind="browser-session")
+        return Identity(email=payload["email"], display_name=payload["display_name"], role=payload["role"], auth_kind="browser-session", org_id=payload.get("org_id"))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
@@ -70,10 +73,6 @@ def verify_google(credential: str, settings: Settings) -> Identity:
     return Identity(email=email, display_name=str(claims.get("name") or email.split("@", 1)[0]), role="admin" if email in settings.admin_emails else "employee", auth_kind="google")
 
 
-def new_machine_token() -> str:
-    return f"orgmcp_{secrets.token_urlsafe(32)}"
-
-
 def token_digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -81,15 +80,20 @@ def token_digest(token: str) -> str:
 def require_identity(request: Request) -> Identity:
     settings: Settings = request.app.state.settings
     if settings.is_demo:
-        return Identity(email="demo@org.system", display_name="Demo User", role="admin", auth_kind="demo")
+        return Identity(email="demo@org.system", display_name="Demo User", role="admin", auth_kind="demo", org_id=request.app.state.store.default_organization()["id"])
     authorization = request.headers.get("authorization", "")
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in with Google or provide an org.system Codex token.")
     token = authorization.removeprefix("Bearer ").strip()
     store = request.app.state.store
-    machine = store.identity_for_mcp_token(token_digest(token)) if token.startswith("orgmcp_") else None
-    if machine:
-        return Identity(email=machine["email"], display_name=machine["display_name"], role=machine["role"], auth_kind="mcp-token")
+    # OAuth access tokens issued to an MCP client carry their own organization, so the
+    # same credential works for the REST API without a second kind of secret existing.
+    if token.startswith("oat_"):
+        granted = request.app.state.oauth.identity_for_access_token(token)
+        machine = store.identity_for_email(granted.email) if granted else None
+        if granted and machine and store.is_member(org_id=granted.org_id, email=granted.email):
+            return Identity(email=machine["email"], display_name=machine["display_name"], role=machine["role"], auth_kind="oauth", org_id=granted.org_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="The org.system credential is invalid or expired.")
     session = decode_session(token, settings)
     if session and (settings.is_public_trial or store.member_is_allowed(email=session.email, configured_emails=settings.admin_emails | settings.allowed_emails)):
         return session
@@ -101,3 +105,18 @@ def require_admin(request: Request) -> Identity:
     if identity.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access is required.")
     return identity
+
+
+def require_org(request: Request) -> tuple[Identity, str]:
+    """Require a credential that is acting inside an organization.
+
+    Fails closed: a signed-in user with no organization gets no memory at all rather
+    than a silent fallback to someone else's records.
+    """
+    identity = require_identity(request)
+    if not identity.org_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Create or join an organization before using team memory.")
+    store = request.app.state.store
+    if identity.auth_kind != "demo" and not store.is_member(org_id=identity.org_id, email=identity.email):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are no longer a member of this organization.")
+    return identity, identity.org_id

@@ -16,12 +16,21 @@ from app.config import get_settings
 from app.main import app
 
 settings = get_settings()
-alice = issue_session(Identity('alice@example.com', 'Alice', 'employee', 'test'), settings)
-bob = issue_session(Identity('bob@example.com', 'Bob', 'employee', 'test'), settings)
-alice_headers = {'Authorization': f'Bearer {alice}'}
-bob_headers = {'Authorization': f'Bearer {bob}'}
 
 with TestClient(app) as client:
+    # A public-trial visitor is admitted to the shared trial organization at sign-in.
+    # Isolation between visitors comes from personal-only scoping, not from separate
+    # organizations, so this test still proves Alice and Bob cannot see each other.
+    store = app.state.store
+    org_id = store.default_organization()['id']
+    for email, display_name in (('alice@example.com', 'Alice'), ('bob@example.com', 'Bob')):
+        store.upsert_user(email=email, display_name=display_name, role='employee')
+        store.add_member(org_id=org_id, email=email, role='employee')
+    alice = issue_session(Identity('alice@example.com', 'Alice', 'employee', 'test', org_id), settings)
+    bob = issue_session(Identity('bob@example.com', 'Bob', 'employee', 'test', org_id), settings)
+    alice_headers = {'Authorization': f'Bearer {alice}'}
+    bob_headers = {'Authorization': f'Bearer {bob}'}
+
     assert client.get('/api/experiences', headers=alice_headers).json()['experiences'] == []
     captured = client.post('/api/capture', headers=alice_headers, json={
         'task': 'Measure a private cache experiment',
@@ -50,9 +59,9 @@ with TestClient(app) as client:
     assert alice_recall.status_code == 200, alice_recall.text
     assert [receipt['experience_id'] for receipt in alice_recall.json()['receipts']] == [experience['id']]
 
-    connection = client.post('/api/auth/mcp-token', headers=alice_headers, json={'label': 'Alice laptop'})
-    assert connection.status_code == 200, connection.text
-    assert connection.json()['codex_url'] == 'https://trial.example/mcp/'
+    connections = client.get('/api/auth/connections', headers=alice_headers)
+    assert connections.status_code == 200, connections.text
+    assert connections.json()['connections'] == [], connections.text
 print('public trial isolation: OK')
 '''
         with tempfile.TemporaryDirectory() as temporary_directory:
